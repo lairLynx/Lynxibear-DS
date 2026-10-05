@@ -12,11 +12,17 @@ static int playerY = 150;
 static int facingX;
 static int facingY = -1;
 static u16 *playerGfx;
-static int displayedFacing = -1;
-static u16 *toolGfx;
+static int displayedFrame = -1;
+static bool movedThisFrame;
+static int walkTicks;
+static u16 *actionGfx;
 static u16 *highlightGfx;
 static int toolAnimationTicks;
-static int toolAnimationPose;
+static int toolAnimationTool;
+static int toolAnimationDirection;
+static int displayedAction = -1;
+
+enum { WALK_FRAME_TICKS = 6, TOOL_ANIMATION_TICKS = 16 };
 
 static void setHighlightPixel(int x, int y)
 {
@@ -111,70 +117,84 @@ void playerInitialize(void)
 {
     oamInit(&oamMain, SpriteMapping_1D_32, false);
     playerGfx = oamAllocateGfx(&oamMain, SpriteSize_32x32, SpriteColorFormat_16Color);
-    toolGfx = oamAllocateGfx(&oamMain, SpriteSize_16x16, SpriteColorFormat_16Color);
+    actionGfx = oamAllocateGfx(&oamMain, SpriteSize_64x64,
+                               SpriteColorFormat_16Color);
     highlightGfx = oamAllocateGfx(&oamMain, SpriteSize_64x64,
                                   SpriteColorFormat_16Color);
-    if (playerGfx == NULL || toolGfx == NULL || highlightGfx == NULL)
+    if (playerGfx == NULL || actionGfx == NULL || highlightGfx == NULL)
     {
         snprintf(message, sizeof(message), "Could not allocate game sprites.");
         return;
     }
 
     memcpy(SPRITE_PALETTE, sproutPlayerPalette, sizeof(sproutPlayerPalette));
-    memcpy(SPRITE_PALETTE + 16, sproutToolSwingPalette,
-           sizeof(sproutToolSwingPalette));
     SPRITE_PALETTE[32] = 0;
     SPRITE_PALETTE[33] = COLOR(31, 31, 0);
+    memcpy(SPRITE_PALETTE + 48, sproutToolActionPalette,
+           sizeof(sproutToolActionPalette));
     initializeHighlightSprite();
     updateFocusedPlot();
 }
 
-void playerStartToolAnimation(void)
+// Sheet rows are down, up, left, right.
+static int facingDirection(void)
 {
-    if (facingY < 0)
-        toolAnimationPose = facingX < 0 ? 1 : 2;
-    else if (facingY > 0)
-        toolAnimationPose = facingX < 0 ? 4 : 5;
-    else
-        toolAnimationPose = facingX < 0 ? 0 : 3;
-    toolAnimationTicks = 12;
+    return facingY < 0 ? 1 : facingY > 0 ? 0 : facingX < 0 ? 2 : 3;
+}
+
+void playerStartToolAnimation(unsigned toolIndex)
+{
+    if (toolIndex > 2)
+        return;
+    toolAnimationTool = (int)toolIndex;
+    toolAnimationDirection = facingDirection();
+    toolAnimationTicks = TOOL_ANIMATION_TICKS;
 }
 
 void playerUpdateSprite(void)
 {
-    if (playerGfx == NULL || toolGfx == NULL || highlightGfx == NULL)
+    if (playerGfx == NULL || actionGfx == NULL || highlightGfx == NULL)
         return;
 
-    int facing = facingY < 0 ? 1 : 0;
-    if (facing != displayedFacing)
+    walkTicks = movedThisFrame ? walkTicks + 1 : 0;
+    movedThisFrame = false;
+    int frame = facingDirection() * 4 + (walkTicks / WALK_FRAME_TICKS) % 4;
+    if (frame != displayedFrame)
     {
-        const u8 *frame = facing ? sproutPlayerBack : sproutPlayerFront;
-        memcpy(playerGfx, frame, sizeof(sproutPlayerFront));
-        displayedFacing = facing;
+        memcpy(playerGfx, sproutPlayerFrames[frame],
+               sizeof(sproutPlayerFrames[frame]));
+        displayedFrame = frame;
     }
 
+    bool swinging = toolAnimationTicks > 0 && view == VIEW_FARM;
     oamSet(&oamMain, 0, playerX - 4, playerY - 8, 0, 0,
            SpriteSize_32x32, SpriteColorFormat_16Color,
-           playerGfx, -1, false, view != VIEW_FARM,
-           facingX < 0, false, false);
-    bool hideTool = toolAnimationTicks == 0 || view != VIEW_FARM;
-    if (!hideTool)
+           playerGfx, -1, false, view != VIEW_FARM || swinging,
+           false, false, false);
+    if (swinging)
     {
-        int animationFrame = toolAnimationPose +
-            ((toolAnimationTicks / 3) & 1 ? 6 : 0);
-        memcpy(toolGfx, sproutToolSwing[animationFrame],
-               sizeof(sproutToolSwing[animationFrame]));
-        oamSet(&oamMain, 1, playerX - 4 + facingX * 9 - 6,
-               playerY - 8 + facingY * 9 - 6, 0, 1,
-               SpriteSize_16x16, SpriteColorFormat_16Color,
-               toolGfx, -1, false, false, facingX < 0, false, false);
+        // Wind-up frame first, then the strike frame.
+        int step = toolAnimationTicks > TOOL_ANIMATION_TICKS / 2 ? 0 : 1;
+        int action = (toolAnimationTool * 4 + toolAnimationDirection) * 2 + step;
+        if (action != displayedAction)
+        {
+            memcpy(actionGfx, sproutToolActions[action],
+                   sizeof(sproutToolActions[action]));
+            displayedAction = action;
+        }
+        // The body sits 18 px in from the corner of the 64x64 action frame.
+        oamSet(&oamMain, 1, playerX - 18, playerY - 22, 0, 3,
+               SpriteSize_64x64, SpriteColorFormat_16Color,
+               actionGfx, -1, false, false, false, false, false);
         toolAnimationTicks--;
     }
     else
-        oamSet(&oamMain, 1, 0, 0, 0, 1, SpriteSize_16x16,
-               SpriteColorFormat_16Color, toolGfx, -1, false,
+    {
+        toolAnimationTicks = 0;
+        oamSet(&oamMain, 1, 0, 0, 0, 3, SpriteSize_64x64,
+               SpriteColorFormat_16Color, actionGfx, -1, false,
                true, false, false, false);
-
+    }
     bool hideHighlight = view != VIEW_FARM || focus < 0 ||
                          game.tileHighlighter == 0;
     int highlightX = 0;
@@ -209,7 +229,10 @@ bool playerMove(u32 heldKeys)
     {
         int previousFocus = focus;
         if (movePlayerBy(dx, dy))
+        {
+            movedThisFrame = true;
             return focus != previousFocus;
+        }
     }
 
     return false;

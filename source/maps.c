@@ -345,6 +345,37 @@ void mapsInitialize(u16 *bitmap)
     frameBuffer = bitmap;
 }
 
+u16 *mapsBitmap(void)
+{
+    return frameBuffer;
+}
+
+static void drawScaledSprite(const u8 *sprite, const u16 *palette,
+                             int x, int y, int scale)
+{
+    for (int row = 0; row < 32; row++)
+    {
+        for (int column = 0; column < 32; column++)
+        {
+            unsigned index = packedSpritePixel(sprite, column, row);
+            if (index != 0)
+                fillRect(x + column * scale, y + row * scale, scale, scale,
+                         palette[index]);
+        }
+    }
+}
+
+// Title scenery for the main menu; the caller adds the lettering.
+void mapsDrawTitle(void)
+{
+    resetClip();
+    farmDrawn = false;
+    drawGrassMeadow();
+    drawScaledSprite(sproutTreeSprite, sproutTreePalette, 14, 112, 2);
+    drawScaledSprite(sproutTreeSprite, sproutTreePalette, 178, 112, 2);
+    drawScaledSprite(sproutPlayerFrames[0], sproutPlayerPalette, 96, 112, 2);
+}
+
 void mapsDraw(int mapId)
 {
     resetClip();

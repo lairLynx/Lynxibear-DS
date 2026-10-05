@@ -20,7 +20,10 @@ enum
     UI_SLOT_SIZE = 24,
     UI_SLOT_Y = 130,
     UI_STORAGE_SLOT_Y = 42,
-    UI_STORAGE_ROW_STEP = 24
+    UI_STORAGE_ROW_STEP = 24,
+    UI_MENU_BUTTON_WIDTH = 96,
+    UI_MENU_BUTTON_Y = 68,
+    UI_MENU_BUTTON_STEP = 40
 };
 
 static int uiPage = UI_ACTIVITY;
@@ -147,7 +150,8 @@ static const u8 *getGlyph(char character, u8 punctuation[7])
     return punctuation;
 }
 
-static void drawText(int x, int y, const char *text, u16 color)
+static void drawTextOn(u16 *bitmap, int x, int y, const char *text,
+                       u16 color, int scale)
 {
     while (*text != '\0')
     {
@@ -157,14 +161,32 @@ static void drawText(int x, int y, const char *text, u16 color)
         {
             for (int column = 0; column < 5; column++)
             {
-                if ((glyph[row] & (1 << (4 - column))) != 0)
-                    uiBitmap[(y + row) * 256 + x + column] = color;
+                if ((glyph[row] & (1 << (4 - column))) == 0)
+                    continue;
+                for (int dy = 0; dy < scale; dy++)
+                {
+                    for (int dx = 0; dx < scale; dx++)
+                        bitmap[(y + row * scale + dy) * 256 +
+                               x + column * scale + dx] = color;
+                }
             }
         }
-        x += 6;
-        if (x >= SCREEN_WIDTH - 5)
+        x += 6 * scale;
+        if (x >= SCREEN_WIDTH - 5 * scale)
             break;
     }
+}
+
+static void drawText(int x, int y, const char *text, u16 color)
+{
+    drawTextOn(uiBitmap, x, y, text, color, 1);
+}
+
+static void drawCenteredText(u16 *bitmap, int y, const char *text,
+                             u16 color, int scale)
+{
+    int width = (int)strlen(text) * 6 * scale - scale;
+    drawTextOn(bitmap, (SCREEN_WIDTH - width) / 2, y, text, color, scale);
 }
 
 static unsigned packedPixel(const u8 *sprite, int sourceSize, int x, int y)
@@ -600,4 +622,97 @@ bool uiHandleTouch(u32 pressedKeys, u32 heldKeys)
     }
 
     return changed;
+}
+
+void uiDrawTitleText(u16 *bitmap)
+{
+    static const u16 cream = COLOR(31, 29, 23);
+    drawCenteredText(bitmap, 16, "LYNXIBEAR", paletteInk, 4);
+    drawCenteredText(bitmap, 14, "LYNXIBEAR", cream, 4);
+    drawCenteredText(bitmap, 52, "VALLEY", paletteInk, 4);
+    drawCenteredText(bitmap, 50, "VALLEY", paletteGold, 4);
+    drawCenteredText(bitmap, 88, "YOUR COZYNESS LOOP", paletteInk, 2);
+    drawCenteredText(bitmap, 87, "YOUR COZYNESS LOOP", cream, 2);
+}
+
+static void menuButtonOrigin(int index, int *x, int *y)
+{
+    *x = (SCREEN_WIDTH - UI_MENU_BUTTON_WIDTH) / 2;
+    *y = UI_MENU_BUTTON_Y + index * UI_MENU_BUTTON_STEP;
+}
+
+static void drawMenuButton(int index, const char *label, bool selected,
+                           bool enabled)
+{
+    int x, y;
+    menuButtonOrigin(index, &x, &y);
+    for (int piece = 0; piece < 3; piece++)
+        drawPackedSprite(sproutMenuButton[(selected ? 3 : 0) + piece], 32,
+                         sproutMenuButtonPalette, x + piece * 32, y, 32, 32);
+    int textWidth = (int)strlen(label) * 6 - 1;
+    drawText(x + (UI_MENU_BUTTON_WIDTH - textWidth) / 2,
+             y + 12 + (selected ? 1 : 0), label,
+             enabled ? paletteInk : paletteMuted);
+}
+
+void uiRenderMenu(int selected, bool canContinue, bool confirming,
+                  const SaveData *save, const char *status)
+{
+    if (uiBitmap == NULL)
+        return;
+
+    char line[48];
+    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, paletteWoodLight);
+    drawFrame(4, 4, 248, 56);
+
+    if (confirming)
+    {
+        drawText(12, 14, "START A NEW FARM?", paletteGreen);
+        drawText(12, 28, "THE SAVED FARM WILL BE ERASED.", paletteInk);
+        drawText(12, 40, "THIS CANNOT BE UNDONE.", paletteMuted);
+    }
+    else if (save != NULL)
+    {
+        drawText(12, 14, "SAVED FARM", paletteGreen);
+        snprintf(line, sizeof(line), "%s  DAY %02lu/%u",
+                 seasonNames[save->season & 3], (unsigned long)save->day,
+                 SEASON_LENGTH);
+        drawText(12, 28, line, paletteInk);
+        snprintf(line, sizeof(line), "GOLD %lu", (unsigned long)save->gold);
+        drawText(12, 40, line, paletteInk);
+    }
+    else
+    {
+        drawText(12, 14, "NO SAVED FARM YET", paletteGreen);
+        drawText(12, 28, "START A NEW GAME TO BEGIN.", paletteInk);
+    }
+
+    if (confirming)
+    {
+        drawMenuButton(0, "ERASE", selected == 0, true);
+        drawMenuButton(1, "CANCEL", selected == 1, true);
+    }
+    else
+    {
+        drawMenuButton(0, "CONTINUE", selected == 0, canContinue);
+        drawMenuButton(1, "NEW GAME", selected == 1, true);
+    }
+
+    drawText(12, 150, status, paletteMuted);
+    drawText(12, 166, confirming ? "A CONFIRMS, B CANCELS" :
+                                   "D-PAD + A, OR TOUCH A BUTTON",
+             paletteInk);
+}
+
+int uiMenuButtonAt(int x, int y)
+{
+    for (int index = 0; index < 2; index++)
+    {
+        int left, top;
+        menuButtonOrigin(index, &left, &top);
+        if (x >= left && x < left + UI_MENU_BUTTON_WIDTH &&
+            y >= top && y < top + 32)
+            return index;
+    }
+    return -1;
 }

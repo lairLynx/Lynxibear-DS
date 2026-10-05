@@ -5,7 +5,7 @@
 
 void playerInitialize(void);
 void playerUpdateSprite(void);
-void playerStartToolAnimation(void);
+void playerStartToolAnimation(unsigned toolIndex);
 bool playerMove(u32 heldKeys);
 
 #endif

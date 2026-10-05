@@ -209,7 +209,7 @@ $spriteArchive = [System.IO.Compression.ZipFile]::OpenRead($spriteZipPath)
 $uiArchive = [System.IO.Compression.ZipFile]::OpenRead($uiZipPath)
 try {
     $playerSheet = Open-ZipImage $spriteArchive "Characters/Basic Charakter Spritesheet.png"
-    $toolSheet = Open-ZipImage $spriteArchive "Characters/Tools.png"
+    $actionSheet = Open-ZipImage $spriteArchive "Characters/Basic Charakter Actions.png"
     $plantSheet = Open-ZipImage $spriteArchive "Objects/Basic Plants.png"
     $utilitySheet = Open-ZipImage $spriteArchive "Objects/Basic tools and meterials.png"
     $environmentSheet = Open-ZipImage $spriteArchive "Objects/Basic Grass Biom things 1.png"
@@ -218,11 +218,16 @@ try {
     $emojiSheet = Open-ZipImage $uiArchive "emojis-free/Emoji_Spritesheet_Free.png"
     $settingsIconSheet = Open-ZipImage $uiArchive "Sprite sheets/Icons/All Icons.png"
     $slotSheet = Open-ZipImage $uiArchive "emojis-free/emoji style ui/Inventory_Blocks_Spritesheet.png"
-    Write-Output "Sprite sheets: player $($playerSheet.Width)x$($playerSheet.Height), tools $($toolSheet.Width)x$($toolSheet.Height), plants $($plantSheet.Width)x$($plantSheet.Height), utility $($utilitySheet.Width)x$($utilitySheet.Height), environment $($environmentSheet.Width)x$($environmentSheet.Height), icons $($emojiSheet.Width)x$($emojiSheet.Height), slots $($slotSheet.Width)x$($slotSheet.Height)"
+    $buttonSheet = Open-ZipImage $uiArchive "Sprite sheets/UI Big Play Button.png"
+    Write-Output "Sprite sheets: player $($playerSheet.Width)x$($playerSheet.Height), actions $($actionSheet.Width)x$($actionSheet.Height), plants $($plantSheet.Width)x$($plantSheet.Height), utility $($utilitySheet.Width)x$($utilitySheet.Height), environment $($environmentSheet.Width)x$($environmentSheet.Height), icons $($emojiSheet.Width)x$($emojiSheet.Height), slots $($slotSheet.Width)x$($slotSheet.Height)"
 
-    $playerFrames = [byte[][]]::new(2)
-    $playerFrames[0] = Get-PaddedPlayerFrame $playerSheet 16 16
-    $playerFrames[1] = Get-PaddedPlayerFrame $playerSheet 16 64
+    # Sheet rows are down, up, left, right; each has 4 walk frames in 48x48 cells.
+    $playerFrames = [byte[][]]::new(16)
+    for ($direction = 0; $direction -lt 4; $direction++) {
+        for ($step = 0; $step -lt 4; $step++) {
+            $playerFrames[$direction * 4 + $step] = Get-PaddedPlayerFrame $playerSheet ($step * 48 + 16) ($direction * 48 + 16)
+        }
+    }
     $playerAssets = Convert-FramesTo4Bpp $playerFrames
 
     $utilityRegions = @(
@@ -237,15 +242,31 @@ try {
     }
     $utilityAssets = Convert-FramesTo4Bpp $utilityFrames
 
-    $toolSwingFrames = [byte[][]]::new(12)
-    $frameIndex = 0
-    foreach ($y in @(32, 48)) {
-        foreach ($x in @(0, 16, 32, 48, 64, 80)) {
-            $toolSwingFrames[$frameIndex] = Get-RegionPixels $toolSheet $x $y 16 16
-            $frameIndex++
+    # Actions sheet: 2 columns (wind-up, strike) of 48x48 cells; every 4 rows are
+    # one tool (axe, hoe, watering can) in down, up, left, right order. A 42x42
+    # crop keeps the tool in view and is scaled 1.5x (same as the walk frames)
+    # into a 64x64 sprite, so the body sits 18 px in from the sprite corner.
+    $actionFrames = [byte[][]]::new(24)
+    for ($row = 0; $row -lt 12; $row++) {
+        for ($column = 0; $column -lt 2; $column++) {
+            $scaled = Get-RegionPixels $actionSheet ($column * 48 + 4) ($row * 48 + 4) 42 42 63 63
+            $canvas = [byte[]]::new(64 * 64 * 4)
+            for ($line = 0; $line -lt 63; $line++) {
+                [Array]::Copy($scaled, $line * 63 * 4, $canvas, $line * 64 * 4, 63 * 4)
+            }
+            $actionFrames[$row * 2 + $column] = $canvas
         }
     }
-    $toolSwingAssets = Convert-FramesTo4Bpp $toolSwingFrames
+    $actionAssets = Convert-FramesTo4Bpp $actionFrames
+
+    # Blank 96x32 menu button (normal, pressed), cut into three 32x32 pieces each.
+    $buttonFrames = [byte[][]]::new(6)
+    for ($state = 0; $state -lt 2; $state++) {
+        for ($piece = 0; $piece -lt 3; $piece++) {
+            $buttonFrames[$state * 3 + $piece] = Get-RegionPixels $buttonSheet ($state * 96 + $piece * 32) 0 32 32 32 32
+        }
+    }
+    $buttonAssets = Convert-FramesTo4Bpp $buttonFrames
 
     $treeFrames = [byte[][]]::new(1)
     $treeFrames[0] = Get-RegionPixels $environmentSheet 16 0 32 32 32 32
@@ -322,8 +343,9 @@ try {
 
     if ($playerAssets.Frames[0].Length -ne 512 -or
         @($utilityAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
-        @($toolSwingAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
+        @($actionAssets.Frames | Where-Object { $_.Length -ne 2048 }).Count -ne 0 -or
         $treeAssets.Frames[0].Length -ne 512 -or
+        @($buttonAssets.Frames | Where-Object { $_.Length -ne 512 }).Count -ne 0 -or
         $seedAssets.Frames[0].Length -ne 128 -or
         $settingsIconAssets.Frames[0].Length -ne 128 -or
         @($grassAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
@@ -340,13 +362,14 @@ try {
 
 #include <nds.h>
 
-extern const u8 sproutPlayerFront[512];
-extern const u8 sproutPlayerBack[512];
+extern const u8 sproutPlayerFrames[16][512];
 extern const u16 sproutPlayerPalette[16];
 extern const u8 sproutUtilityIcons[4][128];
 extern const u16 sproutUtilityPalette[16];
-extern const u8 sproutToolSwing[12][128];
-extern const u16 sproutToolSwingPalette[16];
+extern const u8 sproutToolActions[24][2048];
+extern const u16 sproutToolActionPalette[16];
+extern const u8 sproutMenuButton[6][512];
+extern const u16 sproutMenuButtonPalette[16];
 extern const u8 sproutTreeSprite[512];
 extern const u16 sproutTreePalette[16];
 extern const u8 sproutSeedIcon[128];
@@ -374,8 +397,13 @@ extern const u16 sproutGrowthPalette[16];
     [void]$builder.AppendLine()
     [void]$builder.AppendLine("/* Sprout Lands Basic assets by Cup Nooble; see README for terms. */")
     [void]$builder.AppendLine()
-    Write-ByteArray $builder "sproutPlayerFront" $playerAssets.Frames[0]
-    Write-ByteArray $builder "sproutPlayerBack" $playerAssets.Frames[1]
+    [void]$builder.AppendLine("const u8 sproutPlayerFrames[16][512] = {")
+    foreach ($frame in $playerAssets.Frames) {
+        $row = for ($i = 0; $i -lt $frame.Length; $i++) { "0x{0:X2}" -f $frame[$i] }
+        [void]$builder.AppendLine("    { " + ($row -join ", ") + " },")
+    }
+    [void]$builder.AppendLine("};")
+    [void]$builder.AppendLine()
     Write-Palette $builder "sproutPlayerPalette" $playerAssets.Palette
     [void]$builder.AppendLine("const u8 sproutUtilityIcons[4][128] = {")
     foreach ($frame in $utilityAssets.Frames) {
@@ -385,14 +413,22 @@ extern const u16 sproutGrowthPalette[16];
     [void]$builder.AppendLine("};")
     [void]$builder.AppendLine()
     Write-Palette $builder "sproutUtilityPalette" $utilityAssets.Palette
-    [void]$builder.AppendLine("const u8 sproutToolSwing[12][128] = {")
-    foreach ($frame in $toolSwingAssets.Frames) {
+    [void]$builder.AppendLine("const u8 sproutToolActions[24][2048] = {")
+    foreach ($frame in $actionAssets.Frames) {
         $row = for ($i = 0; $i -lt $frame.Length; $i++) { "0x{0:X2}" -f $frame[$i] }
         [void]$builder.AppendLine("    { " + ($row -join ", ") + " },")
     }
     [void]$builder.AppendLine("};")
     [void]$builder.AppendLine()
-    Write-Palette $builder "sproutToolSwingPalette" $toolSwingAssets.Palette
+    Write-Palette $builder "sproutToolActionPalette" $actionAssets.Palette
+    [void]$builder.AppendLine("const u8 sproutMenuButton[6][512] = {")
+    foreach ($frame in $buttonAssets.Frames) {
+        $row = for ($i = 0; $i -lt $frame.Length; $i++) { "0x{0:X2}" -f $frame[$i] }
+        [void]$builder.AppendLine("    { " + ($row -join ", ") + " },")
+    }
+    [void]$builder.AppendLine("};")
+    [void]$builder.AppendLine()
+    Write-Palette $builder "sproutMenuButtonPalette" $buttonAssets.Palette
     Write-ByteArray $builder "sproutTreeSprite" $treeAssets.Frames[0]
     Write-Palette $builder "sproutTreePalette" $treeAssets.Palette
     Write-ByteArray $builder "sproutSeedIcon" $seedAssets.Frames[0]

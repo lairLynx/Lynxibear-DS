@@ -20,7 +20,9 @@ existing title, however it is heavly inspired by Stardew Valley by Concerned Ape
 - Harvest and overnight shipping loop
 - Bottom-screen touch UI with info, controls, and settings panels
 - Optional tile highlighter (on by default, toggle in settings)
-- SD-card saves with backup and recovery
+- Streamed music: a dedicated menu theme and a looping in-game playlist
+- Title menu with Continue / New Game and a single save slot
+- SD-card saves with backup and recovery; the game autosaves when you sleep
 
 ## Controls
 
@@ -46,6 +48,9 @@ Town:
 | B / START | Return to the farm |
 
 ## Build
+
+Music is not stored in the repository. To include it, run
+`python tools\convert_music.py` once (needs `pip install numpy scipy soundfile`); without it the game builds and runs silently.
 
 Requires the [BlocksDS SDK](https://github.com/blocksds/sdk) and the
 Wonderful Toolchain. On Windows the build script expects an MSYS2/Wonderful
@@ -73,4 +78,6 @@ it in an emulator. Saves are written to `lynxibear.sav`.
   are not included in this repository and must not be redistributed.
 - Source code is released under the [MIT License](LICENSE). The MIT license
   does not cover the Sprout Lands art, which stays under its creator's terms.
+- Music (CC0, from OpenGameArt.org): "Apple Cider" and "Hush Hamlet" by Zane Little Music,
+  and "Hot Springs Town" by Kistol. Converted for the DS by `tools/convert_music.py`.
 - Built with [BlocksDS](https://github.com/blocksds/sdk) and libnds.

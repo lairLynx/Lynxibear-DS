@@ -537,6 +537,13 @@ bool saveLoadGame(void)
     return true;
 }
 
+bool savePeek(SaveData *out)
+{
+    bool migrated;
+    return readSave(SAVE_PATH, out, &migrated) ||
+           readSave(SAVE_BACKUP_PATH, out, &migrated);
+}
+
 bool saveGame(void)
 {
     game.version = SAVE_VERSION;

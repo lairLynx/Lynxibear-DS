@@ -5,5 +5,7 @@
 
 void mapsInitialize(u16 *frameBuffer);
 void mapsDraw(int mapId);
+void mapsDrawTitle(void);
+u16 *mapsBitmap(void);
 
 #endif

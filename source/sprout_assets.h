@@ -3,13 +3,14 @@
 
 #include <nds.h>
 
-extern const u8 sproutPlayerFront[512];
-extern const u8 sproutPlayerBack[512];
+extern const u8 sproutPlayerFrames[16][512];
 extern const u16 sproutPlayerPalette[16];
 extern const u8 sproutUtilityIcons[4][128];
 extern const u16 sproutUtilityPalette[16];
-extern const u8 sproutToolSwing[12][128];
-extern const u16 sproutToolSwingPalette[16];
+extern const u8 sproutToolActions[24][2048];
+extern const u16 sproutToolActionPalette[16];
+extern const u8 sproutMenuButton[6][512];
+extern const u16 sproutMenuButtonPalette[16];
 extern const u8 sproutTreeSprite[512];
 extern const u16 sproutTreePalette[16];
 extern const u8 sproutSeedIcon[128];

@@ -1,5 +1,7 @@
+#include "audio.h"
 #include "game.h"
 #include "items.h"
+#include "menu.h"
 #include "player.h"
 #include "render.h"
 #include "save.h"
@@ -16,12 +18,23 @@ int main(void)
 {
     renderInitialize();
     gameNew();
+    bool saveReady = saveInitialize();
+    uiInitialize();
+    audioInitialize();
 
-    if (saveInitialize() && !saveLoadGame())
+    if (menuRun(saveReady))
+    {
+        if (!saveLoadGame())
+            gameNew();
+    }
+    else if (saveReady)
+    {
         gameNew();
+        saveProgress();
+    }
 
     playerInitialize();
-    uiInitialize();
+    audioPlay(MUSIC_GAME);
     renderScene();
     uiRenderStatus();
 
@@ -63,7 +76,8 @@ int main(void)
                 gameUseSelectedTool();
                 if (selectedSlot >= 0 && selectedSlot < INVENTORY_SLOTS &&
                     itemIsTool(game.inventory[selectedSlot].item))
-                    playerStartToolAnimation();
+                    playerStartToolAnimation(itemToolIndex(
+                        game.inventory[selectedSlot].item));
                 changed = true;
                 sceneChanged = true;
             }
@@ -144,6 +158,7 @@ int main(void)
             uiRenderStatus();
         }
         swiWaitForVBlank();
+        audioUpdate();
         playerUpdateSprite();
     }
 
