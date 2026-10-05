@@ -71,4 +71,6 @@ it in an emulator. Saves are written to `lynxibear.sav`.
   The packs permit modification and non-commercial use only; commercial use,
   NFT-related use, and AI training are prohibited. The original asset packs
   are not included in this repository and must not be redistributed.
+- Source code is released under the [MIT License](LICENSE). The MIT license
+  does not cover the Sprout Lands art, which stays under its creator's terms.
 - Built with [BlocksDS](https://github.com/blocksds/sdk) and libnds.
