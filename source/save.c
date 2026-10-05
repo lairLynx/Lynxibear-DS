@@ -12,6 +12,10 @@
 #define SAVE_TEMP_PATH "/lynxibear.tmp"
 #define SAVE_BACKUP_PATH "/lynxibear.bak"
 
+// Saves before version 7 had five rows of plots per screen.
+#define OLD_FIELD_ROWS 5
+#define OLD_TILE_COUNT (OLD_FIELD_ROWS * FIELD_COLUMNS)
+
 char storageMessage[44] = "SD save not loaded.";
 
 typedef struct
@@ -28,7 +32,7 @@ typedef struct
     u32 checksum;
     u8 season;
     u8 reserved[3];
-    FarmTile farm[FIELD_ROWS][FIELD_COLUMNS];
+    FarmTile farm[OLD_FIELD_ROWS][FIELD_COLUMNS];
 } SaveDataV1;
 
 typedef struct
@@ -44,7 +48,7 @@ typedef struct
     u32 checksum;
     u8 season;
     u8 reserved[3];
-    FarmTile farm[FIELD_ROWS][FIELD_COLUMNS];
+    FarmTile farm[OLD_FIELD_ROWS][FIELD_COLUMNS];
 } SaveDataV2;
 
 typedef struct
@@ -60,7 +64,7 @@ typedef struct
     u32 checksum;
     u8 season;
     u8 reserved[3];
-    FarmTile farm[FIELD_ROWS][FIELD_COLUMNS];
+    FarmTile farm[OLD_FIELD_ROWS][FIELD_COLUMNS];
 } SaveDataV3;
 
 typedef struct
@@ -78,8 +82,47 @@ typedef struct
     u32 checksum;
     u8 season;
     u8 reserved[3];
-    FarmTile farm[FIELD_ROWS][FIELD_COLUMNS];
+    FarmTile farm[OLD_FIELD_ROWS][FIELD_COLUMNS];
 } SaveDataV4;
+
+typedef struct
+{
+    u32 magic;
+    u32 version;
+    u32 day;
+    u32 gold;
+    u32 energy;
+    InventorySlot inventory[INVENTORY_SLOTS];
+    InventorySlot storage[STORAGE_SLOTS];
+    u64 treeMask;
+    u32 repairs;
+    u32 harvests;
+    u32 checksum;
+    u8 season;
+    u8 tileHighlighter;
+    u8 reserved[2];
+    FarmTile farm[OLD_FIELD_ROWS][FIELD_COLUMNS];
+} SaveDataV5;
+
+typedef struct
+{
+    u32 magic;
+    u32 version;
+    u32 day;
+    u32 gold;
+    u32 energy;
+    InventorySlot inventory[INVENTORY_SLOTS];
+    InventorySlot storage[STORAGE_SLOTS];
+    u64 treeMask[WORLD_SCREENS];
+    u32 repairs;
+    u32 harvests;
+    u32 checksum;
+    u8 season;
+    u8 tileHighlighter;
+    u8 screen;
+    u8 reserved;
+    FarmTile farm[WORLD_SCREENS][OLD_FIELD_ROWS][FIELD_COLUMNS];
+} SaveDataV6;
 
 static u32 checksumBytes(const void *data, size_t size, size_t checksumOffset)
 {
@@ -96,19 +139,27 @@ static u32 checksumBytes(const void *data, size_t size, size_t checksumOffset)
     return hash;
 }
 
-static bool validFarm(const FarmTile farm[FIELD_ROWS][FIELD_COLUMNS])
+static bool validFarmTiles(const FarmTile *farm, int count)
 {
-    for (int row = 0; row < FIELD_ROWS; row++)
+    for (int i = 0; i < count; i++)
     {
-        for (int column = 0; column < FIELD_COLUMNS; column++)
-        {
-            const FarmTile *tile = &farm[row][column];
-            if (tile->crop > CROP_COUNT || tile->growth > 7 ||
-                tile->tilled > 1 || tile->watered > 1)
-                return false;
-        }
+        const FarmTile *tile = &farm[i];
+        if (tile->crop > CROP_COUNT || tile->growth > 7 ||
+            tile->tilled > 1 || tile->watered > 1)
+            return false;
     }
 
+    return true;
+}
+
+static bool validWorld(const SaveData *data)
+{
+    for (int screen = 0; screen < WORLD_SCREENS; screen++)
+    {
+        if ((data->treeMask[screen] >> FARM_TILE_COUNT) != 0 ||
+            !validFarmTiles(&data->farm[screen][0][0], FARM_TILE_COUNT))
+            return false;
+    }
     return true;
 }
 
@@ -118,11 +169,83 @@ static bool validCurrentSave(const SaveData *data)
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
-        data->tileHighlighter > 1 ||
-        (data->treeMask >> FARM_TILE_COUNT) != 0 ||
-        !validFarm(data->farm) ||
+        data->tileHighlighter > 1 || data->screen >= WORLD_SCREENS ||
+        !validWorld(data) ||
         data->checksum != checksumBytes(data, sizeof(*data),
                                         offsetof(SaveData, checksum)))
+        return false;
+
+    const InventorySlot *containers[] = {data->inventory, data->storage};
+    const unsigned slotCounts[] = {INVENTORY_SLOTS, STORAGE_SLOTS};
+    for (unsigned container = 0; container < 2; container++)
+    {
+        for (unsigned i = 0; i < slotCounts[container]; i++)
+        {
+            const InventorySlot *slot = &containers[container][i];
+            if ((slot->item == ITEM_NONE && slot->count != 0) ||
+                (slot->item != ITEM_NONE &&
+                 (slot->item > ITEM_LAST || slot->count == 0 ||
+                  slot->count > MAX_STACK)) ||
+                (itemIsTool(slot->item) && slot->count != 1))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+static bool validWorldV6(const SaveDataV6 *data)
+{
+    for (int screen = 0; screen < WORLD_SCREENS; screen++)
+    {
+        if ((data->treeMask[screen] >> OLD_TILE_COUNT) != 0 ||
+            !validFarmTiles(&data->farm[screen][0][0], OLD_TILE_COUNT))
+            return false;
+    }
+    return true;
+}
+
+static bool validV6Save(const SaveDataV6 *data)
+{
+    if (data->magic != SAVE_MAGIC || data->version != 6 ||
+        data->day == 0 || data->day > SEASON_LENGTH ||
+        data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
+        data->repairs > 2 || data->season >= 4 ||
+        data->tileHighlighter > 1 || data->screen >= WORLD_SCREENS ||
+        !validWorldV6(data) ||
+        data->checksum != checksumBytes(data, sizeof(*data),
+                                        offsetof(SaveDataV6, checksum)))
+        return false;
+
+    const InventorySlot *containers[] = {data->inventory, data->storage};
+    const unsigned slotCounts[] = {INVENTORY_SLOTS, STORAGE_SLOTS};
+    for (unsigned container = 0; container < 2; container++)
+    {
+        for (unsigned i = 0; i < slotCounts[container]; i++)
+        {
+            const InventorySlot *slot = &containers[container][i];
+            if ((slot->item == ITEM_NONE && slot->count != 0) ||
+                (slot->item != ITEM_NONE &&
+                 (slot->item > ITEM_LAST || slot->count == 0 ||
+                  slot->count > MAX_STACK)) ||
+                (itemIsTool(slot->item) && slot->count != 1))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+static bool validV5Save(const SaveDataV5 *data)
+{
+    if (data->magic != SAVE_MAGIC || data->version != 5 ||
+        data->day == 0 || data->day > SEASON_LENGTH ||
+        data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
+        data->repairs > 2 || data->season >= 4 || data->tileHighlighter > 1 ||
+        (data->treeMask >> OLD_TILE_COUNT) != 0 ||
+        !validFarmTiles(&data->farm[0][0], OLD_TILE_COUNT) ||
+        data->checksum != checksumBytes(data, sizeof(*data),
+                                        offsetof(SaveDataV5, checksum)))
         return false;
 
     const InventorySlot *containers[] = {data->inventory, data->storage};
@@ -150,8 +273,8 @@ static bool validV4Save(const SaveDataV4 *data)
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
-        (data->treeMask >> FARM_TILE_COUNT) != 0 ||
-        !validFarm(data->farm) ||
+        (data->treeMask >> OLD_TILE_COUNT) != 0 ||
+        !validFarmTiles(&data->farm[0][0], OLD_TILE_COUNT) ||
         data->checksum != checksumBytes(data, sizeof(*data),
                                         offsetof(SaveDataV4, checksum)))
         return false;
@@ -181,7 +304,7 @@ static bool validV2Save(const SaveDataV2 *data)
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
-        !validFarm(data->farm) ||
+        !validFarmTiles(&data->farm[0][0], OLD_TILE_COUNT) ||
         data->checksum != checksumBytes(data, sizeof(*data),
                                         offsetof(SaveDataV2, checksum)))
         return false;
@@ -205,7 +328,7 @@ static bool validV3Save(const SaveDataV3 *data)
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
-        !validFarm(data->farm) ||
+        !validFarmTiles(&data->farm[0][0], OLD_TILE_COUNT) ||
         data->checksum != checksumBytes(data, sizeof(*data),
                                         offsetof(SaveDataV3, checksum)))
         return false;
@@ -228,7 +351,7 @@ static bool validV1Save(const SaveDataV1 *data)
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
-        !validFarm(data->farm) ||
+        !validFarmTiles(&data->farm[0][0], OLD_TILE_COUNT) ||
         data->checksum != checksumBytes(data, sizeof(*data),
                                         offsetof(SaveDataV1, checksum)))
         return false;
@@ -251,6 +374,28 @@ static bool readCurrentSave(const char *path, SaveData *data)
     bool readOk = fread(data, sizeof(*data), 1, file) == 1;
     fclose(file);
     return readOk && validCurrentSave(data);
+}
+
+static bool readV6Save(const char *path, SaveDataV6 *data)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+        return false;
+
+    bool readOk = fread(data, sizeof(*data), 1, file) == 1;
+    fclose(file);
+    return readOk && validV6Save(data);
+}
+
+static bool readV5Save(const char *path, SaveDataV5 *data)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+        return false;
+
+    bool readOk = fread(data, sizeof(*data), 1, file) == 1;
+    fclose(file);
+    return readOk && validV5Save(data);
 }
 
 static bool readV4Save(const char *path, SaveDataV4 *data)
@@ -297,7 +442,7 @@ static bool readV1Save(const char *path, SaveDataV1 *data)
     return readOk && validV1Save(data);
 }
 
-static bool addInventory(SaveData *data, unsigned item, unsigned count)
+static bool addInventory(SaveDataV5 *data, unsigned item, unsigned count)
 {
     InventorySlot *containers[] = {data->inventory, data->storage};
     const unsigned slotCounts[] = {INVENTORY_SLOTS, STORAGE_SLOTS};
@@ -326,7 +471,7 @@ static bool addInventory(SaveData *data, unsigned item, unsigned count)
     return true;
 }
 
-static bool hasInventoryItem(const SaveData *data, unsigned item)
+static bool hasInventoryItem(const SaveDataV5 *data, unsigned item)
 {
     for (int i = 0; i < INVENTORY_SLOTS; i++)
         if (data->inventory[i].item == item)
@@ -337,7 +482,7 @@ static bool hasInventoryItem(const SaveData *data, unsigned item)
     return false;
 }
 
-static void addStartingTools(SaveData *data)
+static void addStartingTools(SaveDataV5 *data)
 {
     const unsigned tools[] = {ITEM_AXE, ITEM_HOE, ITEM_WATERING_CAN};
     for (unsigned i = 0; i < sizeof(tools) / sizeof(tools[0]); i++)
@@ -345,7 +490,7 @@ static void addStartingTools(SaveData *data)
             addInventory(data, tools[i], 1);
 }
 
-static void initializeMigratedTrees(SaveData *data)
+static void initializeMigratedTrees(SaveDataV5 *data)
 {
     const unsigned treeTiles[] = {0, 7, 32};
     for (unsigned i = 0; i < sizeof(treeTiles) / sizeof(treeTiles[0]); i++)
@@ -358,11 +503,11 @@ static void initializeMigratedTrees(SaveData *data)
     }
 }
 
-static void migrateV1(const SaveDataV1 *old, SaveData *data)
+static void migrateV1(const SaveDataV1 *old, SaveDataV5 *data)
 {
     memset(data, 0, sizeof(*data));
     data->magic = SAVE_MAGIC;
-    data->version = SAVE_VERSION;
+    data->version = 5;
     data->day = old->day;
     data->gold = old->gold;
     data->energy = old->energy;
@@ -394,11 +539,11 @@ static void migrateV1(const SaveDataV1 *old, SaveData *data)
     initializeMigratedTrees(data);
 }
 
-static void migrateV3(const SaveDataV3 *old, SaveData *data)
+static void migrateV3(const SaveDataV3 *old, SaveDataV5 *data)
 {
     memset(data, 0, sizeof(*data));
     data->magic = SAVE_MAGIC;
-    data->version = SAVE_VERSION;
+    data->version = 5;
     data->day = old->day;
     data->gold = old->gold;
     data->energy = old->energy;
@@ -412,11 +557,11 @@ static void migrateV3(const SaveDataV3 *old, SaveData *data)
     initializeMigratedTrees(data);
 }
 
-static void migrateV4(const SaveDataV4 *old, SaveData *data)
+static void migrateV4(const SaveDataV4 *old, SaveDataV5 *data)
 {
     memset(data, 0, sizeof(*data));
     data->magic = SAVE_MAGIC;
-    data->version = SAVE_VERSION;
+    data->version = 5;
     data->day = old->day;
     data->gold = old->gold;
     data->energy = old->energy;
@@ -430,11 +575,11 @@ static void migrateV4(const SaveDataV4 *old, SaveData *data)
     memcpy(data->farm, old->farm, sizeof(data->farm));
 }
 
-static void migrateV2(const SaveDataV2 *old, SaveData *data)
+static void migrateV2(const SaveDataV2 *old, SaveDataV5 *data)
 {
     memset(data, 0, sizeof(*data));
     data->magic = SAVE_MAGIC;
-    data->version = SAVE_VERSION;
+    data->version = 5;
     data->day = old->day;
     data->gold = old->gold;
     data->energy = old->energy;
@@ -448,6 +593,58 @@ static void migrateV2(const SaveDataV2 *old, SaveData *data)
     initializeMigratedTrees(data);
 }
 
+// Version 7 added a sixth row of plots at the top of every screen, so older
+// rows move down by one (the same place on screen) and trees shift with them.
+static void clearHomeExit(SaveData *data)
+{
+    data->farm[HOME_SCREEN][HOME_EXIT_ROW][FIELD_COLUMNS - 1] = (FarmTile){0};
+    data->treeMask[HOME_SCREEN] &= ~((u64)1 << HOME_EXIT_TILE);
+}
+
+static void migrateV5(const SaveDataV5 *old, SaveData *data)
+{
+    memset(data, 0, sizeof(*data));
+    data->magic = SAVE_MAGIC;
+    data->version = SAVE_VERSION;
+    data->day = old->day;
+    data->gold = old->gold;
+    data->energy = old->energy;
+    memcpy(data->inventory, old->inventory, sizeof(old->inventory));
+    memcpy(data->storage, old->storage, sizeof(old->storage));
+    data->repairs = old->repairs;
+    data->harvests = old->harvests;
+    data->season = old->season;
+    data->tileHighlighter = old->tileHighlighter;
+    data->screen = HOME_SCREEN;
+    memcpy(&data->farm[HOME_SCREEN][1][0], old->farm, sizeof(old->farm));
+    data->treeMask[HOME_SCREEN] = old->treeMask << FIELD_COLUMNS;
+    gameGenerateWildTrees(data);
+    clearHomeExit(data);
+}
+
+static void migrateV6(const SaveDataV6 *old, SaveData *data)
+{
+    memset(data, 0, sizeof(*data));
+    data->magic = SAVE_MAGIC;
+    data->version = SAVE_VERSION;
+    data->day = old->day;
+    data->gold = old->gold;
+    data->energy = old->energy;
+    memcpy(data->inventory, old->inventory, sizeof(old->inventory));
+    memcpy(data->storage, old->storage, sizeof(old->storage));
+    data->repairs = old->repairs;
+    data->harvests = old->harvests;
+    data->season = old->season;
+    data->tileHighlighter = old->tileHighlighter;
+    data->screen = old->screen;
+    for (int screen = 0; screen < WORLD_SCREENS; screen++)
+    {
+        memcpy(&data->farm[screen][1][0], old->farm[screen], sizeof(old->farm[screen]));
+        data->treeMask[screen] = old->treeMask[screen] << FIELD_COLUMNS;
+    }
+    clearHomeExit(data);
+}
+
 static bool readSave(const char *path, SaveData *data, bool *migrated)
 {
     if (migrated != NULL)
@@ -455,10 +652,29 @@ static bool readSave(const char *path, SaveData *data, bool *migrated)
     if (readCurrentSave(path, data))
         return true;
 
+    SaveDataV6 previous;
+    if (readV6Save(path, &previous))
+    {
+        migrateV6(&previous, data);
+        if (migrated != NULL)
+            *migrated = true;
+        return true;
+    }
+
+    SaveDataV5 upgraded;
+    if (readV5Save(path, &upgraded))
+    {
+        migrateV5(&upgraded, data);
+        if (migrated != NULL)
+            *migrated = true;
+        return true;
+    }
+
     SaveDataV4 oldV4;
     if (readV4Save(path, &oldV4))
     {
-        migrateV4(&oldV4, data);
+        migrateV4(&oldV4, &upgraded);
+        migrateV5(&upgraded, data);
         if (migrated != NULL)
             *migrated = true;
         return true;
@@ -467,7 +683,8 @@ static bool readSave(const char *path, SaveData *data, bool *migrated)
     SaveDataV3 oldV3;
     if (readV3Save(path, &oldV3))
     {
-        migrateV3(&oldV3, data);
+        migrateV3(&oldV3, &upgraded);
+        migrateV5(&upgraded, data);
         if (migrated != NULL)
             *migrated = true;
         return true;
@@ -476,7 +693,8 @@ static bool readSave(const char *path, SaveData *data, bool *migrated)
     SaveDataV2 oldV2;
     if (readV2Save(path, &oldV2))
     {
-        migrateV2(&oldV2, data);
+        migrateV2(&oldV2, &upgraded);
+        migrateV5(&upgraded, data);
         if (migrated != NULL)
             *migrated = true;
         return true;
@@ -486,7 +704,8 @@ static bool readSave(const char *path, SaveData *data, bool *migrated)
     if (!readV1Save(path, &old))
         return false;
 
-    migrateV1(&old, data);
+    migrateV1(&old, &upgraded);
+    migrateV5(&upgraded, data);
     if (migrated != NULL)
         *migrated = true;
     return true;

@@ -16,6 +16,8 @@ static void saveProgress(void)
 
 int main(void)
 {
+    int shownScreen = 0;
+    int shownView = VIEW_FARM;
     renderInitialize();
     gameNew();
     bool saveReady = saveInitialize();
@@ -33,6 +35,8 @@ int main(void)
         saveProgress();
     }
 
+    shownScreen = game.screen;
+    shownView = view;
     playerInitialize();
     audioPlay(MUSIC_GAME);
     renderScene();
@@ -49,11 +53,18 @@ int main(void)
 
         if (pressed & KEY_START)
         {
-            view = view == VIEW_FARM ? VIEW_TOWN : VIEW_FARM;
             if (view == VIEW_TOWN)
-                snprintf(message, sizeof(message), "Lynxibear Valley: choose a place to visit.");
+            {
+                view = townReturnView;
+                snprintf(message, sizeof(message), view == VIEW_ROADS ?
+                         "Back on the crossroads." : "Back at the farm.");
+            }
             else
-                snprintf(message, sizeof(message), "Back at the farm.");
+            {
+                townReturnView = view;
+                view = VIEW_TOWN;
+                snprintf(message, sizeof(message), "Lynxibear Valley: choose a place to visit.");
+            }
             changed = true;
             sceneChanged = true;
         }
@@ -61,9 +72,16 @@ int main(void)
         if (uiHandleTouch(pressed, held))
             changed = true;
 
-        if (!uiInventoryOpen() && view == VIEW_FARM)
+        if (!uiInventoryOpen() && gameViewWalkable())
         {
             playerMove(held);
+            if (game.screen != shownScreen || view != shownView)
+            {
+                changed = true;
+                sceneChanged = true;
+            }
+            if (playerTakeStatusDirty())
+                changed = true;
 
             if (pressed & KEY_A)
             {
@@ -121,8 +139,9 @@ int main(void)
             }
             else if (pressed & KEY_B)
             {
-                view = VIEW_FARM;
-                snprintf(message, sizeof(message), "Back at the farm.");
+                view = townReturnView;
+                snprintf(message, sizeof(message), view == VIEW_ROADS ?
+                         "Back on the crossroads." : "Back at the farm.");
                 changed = true;
                 sceneChanged = true;
             }
@@ -147,14 +166,20 @@ int main(void)
                 saveProgress();
                 sceneChanged = true;
             }
-            if (view == VIEW_FARM &&
+            if (gameViewWalkable() &&
                 ((pressed & (KEY_A | KEY_B | KEY_Y)) != 0))
                 saveProgress();
             else if (view == VIEW_TOWN && (pressed & KEY_A))
                 saveProgress();
 
+            if (view != shownView || game.screen != shownScreen)
+                sceneChanged = true;
             if (sceneChanged)
+            {
+                shownScreen = game.screen;
+                shownView = view;
                 renderScene();
+            }
             uiRenderStatus();
         }
         swiWaitForVBlank();

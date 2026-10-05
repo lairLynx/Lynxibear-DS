@@ -9,9 +9,16 @@ existing title, however it is heavly inspired by Stardew Valley by Concerned Ape
 
 ## Implemented features
 
-- Farm scene with a walking farmer, grass, tilled soil, crop growth stages,
-  and trees to chop
-- Axe, hoe, and watering can with swing animations
+- Title menu with Continue / New Game and a single save slot; Continue shows
+  the saved season, day, and gold
+- A 3x3 grid of farm fields with 8x6 plots each; walk off a screen edge to
+  reach the neighboring field. New games start on the top-right field
+- A fenced crossroads east of the starting field, with trees and bushes, that
+  leads to the town (the mines to the north and the beach to the south are
+  closed for now)
+- Walking farmer with four-direction walk animations; axe, hoe, and watering
+  can with full-body swing animations in every direction
+- Grass, tilled soil, crop growth stages, and trees to chop
 - Nine seasonal crops across a 28-day calendar for each of four seasons, plus
   rain
 - Nine-slot item bar and a 27-slot bag with drag-and-drop on the touch screen
@@ -21,12 +28,12 @@ existing title, however it is heavly inspired by Stardew Valley by Concerned Ape
 - Bottom-screen touch UI with info, controls, and settings panels
 - Optional tile highlighter (on by default, toggle in settings)
 - Streamed music: a dedicated menu theme and a looping in-game playlist
-- Title menu with Continue / New Game and a single save slot
-- SD-card saves with backup and recovery; the game autosaves when you sleep
+- SD-card saves with backup and recovery; the game autosaves when you sleep,
+  and older saves are upgraded automatically
 
 ## Controls
 
-Farm:
+Farm and crossroads:
 
 | Input | Action |
 | --- | --- |
@@ -35,22 +42,27 @@ Farm:
 | B | Use the selected tool |
 | Y | Sleep, ship produce, start a new day |
 | L / R | Select inventory slot |
-| START | Visit town |
+| START | Visit town (walking east from the crossroads also leads there) |
 | Touch | Select item-bar slots, open `BAG`, `INFO`, `CONTROLS`, `SETTINGS`; drag items between slots |
+
+Title menu:
+
+| Input | Action |
+| --- | --- |
+| D-pad up / down, A | Choose Continue or New Game |
+| Touch | Tap a button |
+| B | Cancel the New Game confirmation |
 
 Town:
 
 | Input | Action |
 | --- | --- |
-| D-pad | Choose shop, restoration board, or farm gate |
-| A | Buy seeds, invest in an upgrade, or return to the farm |
+| D-pad | Choose shop, restoration board, or town gate |
+| A | Buy seeds, invest in an upgrade, or leave town |
 | L / R | Choose a seed offer |
-| B / START | Return to the farm |
+| B / START | Leave town (back to where you came from) |
 
 ## Build
-
-Music is not stored in the repository. To include it, run
-`python tools\convert_music.py` once (needs `pip install numpy scipy soundfile`); without it the game builds and runs silently.
 
 Requires the [BlocksDS SDK](https://github.com/blocksds/sdk) and the
 Wonderful Toolchain. On Windows the build script expects an MSYS2/Wonderful
@@ -61,6 +73,12 @@ compile.bat          :: build lynxibear.nds
 compile.bat -B       :: force a full rebuild
 compile.bat clean    :: remove generated files
 ```
+
+Music is not stored in the repository. To include it, run
+`python tools\convert_music.py` once before building (needs
+`pip install numpy scipy soundfile`); it downloads the CC0 tracks and writes
+them to `nitrofs/`, which makes the ROM about 15 MB. Without it the game builds
+and runs silently.
 
 Copy `lynxibear.nds` to the SD card of a DSi (or DS with a flashcart) or run
 it in an emulator. Saves are written to `lynxibear.sav`.

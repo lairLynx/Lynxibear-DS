@@ -2,6 +2,7 @@
 
 #include "game.h"
 #include "items.h"
+#include "maps.h"
 #include "sprout_assets.h"
 
 #include <stdio.h>
@@ -52,8 +53,32 @@ static void initializeHighlightSprite(void)
     }
 }
 
+static bool statusDirty;
+
+static void setStatus(const char *text)
+{
+    if (strcmp(message, text) != 0)
+    {
+        snprintf(message, sizeof(message), "%s", text);
+        statusDirty = true;
+    }
+}
+
+bool playerTakeStatusDirty(void)
+{
+    bool dirty = statusDirty;
+    statusDirty = false;
+    return dirty;
+}
+
 static void updateFocusedPlot(void)
 {
+    if (view != VIEW_FARM)
+    {
+        focus = -1;
+        return;
+    }
+
     int playerColumn = (playerX + 8 - FIELD_LEFT) / TILE_SIZE;
     int playerRow = (playerY + 8 - FIELD_TOP) / TILE_SIZE;
     int column = playerColumn + facingX;
@@ -66,26 +91,132 @@ static void updateFocusedPlot(void)
         focus = row * FIELD_COLUMNS + column;
 }
 
+enum
+{
+    WALK_MIN_X = FIELD_LEFT + 4,
+    WALK_MAX_X = FIELD_LEFT + FIELD_COLUMNS * TILE_SIZE - 20,
+    WALK_MIN_Y = FIELD_TOP + 8,
+    WALK_MAX_Y = FIELD_TOP + FIELD_ROWS * TILE_SIZE - 16,
+    // Sprite y that centres the figure on the horizontal road.
+    ROADS_ENTRY_Y = 84
+};
+
+static bool treeAt(int screen, int x, int y)
+{
+    int column = (x + 8 - FIELD_LEFT) / TILE_SIZE;
+    int row = (y + 8 - FIELD_TOP) / TILE_SIZE;
+    if (column < 0 || column >= FIELD_COLUMNS || row < 0 || row >= FIELD_ROWS)
+        return false;
+    return (game.treeMask[screen] & ((u64)1 << (row * FIELD_COLUMNS + column))) != 0;
+}
+
 static bool canMovePlayerTo(int x, int y)
 {
-    if (x < FIELD_LEFT + 4 ||
-        x > FIELD_LEFT + FIELD_COLUMNS * TILE_SIZE - 20 ||
-        y < FIELD_TOP + 8 ||
-        y > FIELD_TOP + FIELD_ROWS * TILE_SIZE - 16)
+    if (x < WALK_MIN_X || x > WALK_MAX_X || y < WALK_MIN_Y || y > WALK_MAX_Y)
         return false;
 
-    int centerX = x + 8;
-    int centerY = y + 8;
-    int column = (centerX - FIELD_LEFT) / TILE_SIZE;
-    int row = (centerY - FIELD_TOP) / TILE_SIZE;
-    if (column >= 0 && column < FIELD_COLUMNS &&
-        row >= 0 && row < FIELD_ROWS)
+    return !treeAt(game.screen, x, y);
+}
+
+// Walking off an edge moves to the neighbouring screen of the farm grid,
+// arriving on the opposite edge, unless there is no neighbour or a tree is in
+// the way. On success the new screen and player position are applied.
+static bool crossScreenEdge(int nextX, int nextY)
+{
+    int column = game.screen % WORLD_COLUMNS;
+    int row = game.screen / WORLD_COLUMNS;
+    int arriveX = nextX;
+    int arriveY = nextY;
+
+    if (game.screen == HOME_SCREEN && nextX > WALK_MAX_X &&
+        (nextY + 8 - FIELD_TOP) / TILE_SIZE == HOME_EXIT_ROW)
     {
-        unsigned tile = (unsigned)(row * FIELD_COLUMNS + column);
-        if ((game.treeMask & ((u64)1 << tile)) != 0)
-            return false;
+        // The road out of the home field leads to the crossroads.
+        view = VIEW_ROADS;
+        playerX = 0;
+        playerY = ROADS_ENTRY_Y;
+        setStatus("The crossroads. Mines north, beach south.");
+        return true;
     }
 
+    if (nextX < WALK_MIN_X && column > 0)
+    {
+        column--;
+        arriveX = WALK_MAX_X;
+    }
+    else if (nextX > WALK_MAX_X && column < WORLD_COLUMNS - 1)
+    {
+        column++;
+        arriveX = WALK_MIN_X;
+    }
+    else if (nextY < WALK_MIN_Y && row > 0)
+    {
+        row--;
+        arriveY = WALK_MAX_Y;
+    }
+    else if (nextY > WALK_MAX_Y && row < WORLD_ROWS - 1)
+    {
+        row++;
+        arriveY = WALK_MIN_Y;
+    }
+    else
+        return false;
+
+    int screen = row * WORLD_COLUMNS + column;
+    if (treeAt(screen, arriveX, arriveY))
+        return false;
+
+    game.screen = (u8)screen;
+    nextX = arriveX;
+    nextY = arriveY;
+    playerX = nextX;
+    playerY = nextY;
+    return true;
+}
+
+// The feet of the 24 px figure, relative to the sprite position, are what
+// collide with fences on the crossroads.
+static bool moveOnRoads(int nextX, int nextY)
+{
+    int left = nextX + 4;
+    int right = nextX + 19;
+    int top = nextY + 12;
+    int bottom = nextY + 19;
+
+    if (left < 0)
+    {
+        view = VIEW_FARM;
+        game.screen = HOME_SCREEN;
+        playerX = WALK_MAX_X;
+        playerY = FIELD_TOP + HOME_EXIT_ROW * TILE_SIZE + 6;
+        setStatus("Back at the farm.");
+        return true;
+    }
+    if (right >= SCREEN_WIDTH)
+    {
+        townReturnView = VIEW_ROADS;
+        view = VIEW_TOWN;
+        playerX = SCREEN_WIDTH - 36;
+        playerY = ROADS_ENTRY_Y;
+        setStatus("Lynxibear Valley: choose a place to visit.");
+        return true;
+    }
+    if (top < 0)
+    {
+        setStatus("The mines are closed for now.");
+        return false;
+    }
+    if (bottom >= SCREEN_HEIGHT)
+    {
+        setStatus("The beach is closed for now.");
+        return false;
+    }
+    if (mapsRoadsSolid(left, top) || mapsRoadsSolid(right, top) ||
+        mapsRoadsSolid(left, bottom) || mapsRoadsSolid(right, bottom))
+        return false;
+
+    playerX = nextX;
+    playerY = nextY;
     return true;
 }
 
@@ -93,11 +224,19 @@ static bool movePlayerBy(int dx, int dy)
 {
     int nextX = playerX + dx;
     int nextY = playerY + dy;
-    if (!canMovePlayerTo(nextX, nextY))
+    if (view == VIEW_ROADS)
+    {
+        if (!moveOnRoads(nextX, nextY))
+            return false;
+    }
+    else if (canMovePlayerTo(nextX, nextY))
+    {
+        playerX = nextX;
+        playerY = nextY;
+    }
+    else if (!crossScreenEdge(nextX, nextY))
         return false;
 
-    playerX = nextX;
-    playerY = nextY;
     if (dx != 0)
     {
         facingX = dx < 0 ? -1 : 1;
@@ -112,7 +251,6 @@ static bool movePlayerBy(int dx, int dy)
     updateFocusedPlot();
     return true;
 }
-
 void playerInitialize(void)
 {
     oamInit(&oamMain, SpriteMapping_1D_32, false);
@@ -166,10 +304,10 @@ void playerUpdateSprite(void)
         displayedFrame = frame;
     }
 
-    bool swinging = toolAnimationTicks > 0 && view == VIEW_FARM;
+    bool swinging = toolAnimationTicks > 0 && view != VIEW_TOWN;
     oamSet(&oamMain, 0, playerX - 4, playerY - 8, 0, 0,
            SpriteSize_32x32, SpriteColorFormat_16Color,
-           playerGfx, -1, false, view != VIEW_FARM || swinging,
+           playerGfx, -1, false, view == VIEW_TOWN || swinging,
            false, false, false);
     if (swinging)
     {

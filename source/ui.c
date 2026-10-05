@@ -247,7 +247,17 @@ static void drawWrappedMessage(int x, int y, const char *text, u16 color)
 static void drawHeader(void)
 {
     char line[48];
-    drawText(12, 9, "LYNXIBEAR FARM", paletteGreen);
+    if (view == VIEW_ROADS)
+        drawText(12, 9, "THE CROSSROADS", paletteGreen);
+    else if (game.screen == HOME_SCREEN)
+        drawText(12, 9, "LYNXIBEAR FARM", paletteGreen);
+    else
+    {
+        snprintf(line, sizeof(line), "FARM FIELD %c%d",
+                 'A' + game.screen % WORLD_COLUMNS,
+                 game.screen / WORLD_COLUMNS + 1);
+        drawText(12, 9, line, paletteGreen);
+    }
     snprintf(line, sizeof(line), "%s  DAY %02lu/%u  %s",
              seasonNames[gameCurrentSeason()], (unsigned long)game.day,
              SEASON_LENGTH, gameIsRaining() ? "RAIN" : "CLEAR");
@@ -262,7 +272,13 @@ static void drawActivityPage(void)
 {
     char line[48];
 
-    if (view == VIEW_FARM)
+    if (view == VIEW_ROADS)
+    {
+        drawText(12, 39, "THE CROSSROADS", paletteGreen);
+        drawText(12, 52, "WEST: THE FARM  EAST: THE TOWN", paletteInk);
+        drawText(12, 64, "NORTH: MINES, SOUTH: BEACH (CLOSED)", paletteMuted);
+    }
+    else if (view == VIEW_FARM)
     {
         drawText(12, 39, "FARM ACTIVITY", paletteGreen);
         drawText(12, 52, "A INTERACTS WITH TARGET TILE", paletteInk);
@@ -272,7 +288,7 @@ static void drawActivityPage(void)
     {
         drawText(12, 39, "LYNXIBEAR VALLEY", paletteGreen);
         drawText(12, 52, townFocus == TOWN_STORE ? "GENERAL STORE" :
-                 townFocus == TOWN_BOARD ? "VALLEY BOARD" : "FARM GATE",
+                 townFocus == TOWN_BOARD ? "VALLEY BOARD" : "TOWN GATE",
                  paletteInk);
         if (townFocus == TOWN_STORE)
         {
@@ -296,7 +312,7 @@ static void drawActivityPage(void)
                      paletteInk);
         }
         else
-            drawText(12, 64, "PRESS A TO RETURN TO THE FARM", paletteInk);
+            drawText(12, 64, "PRESS A TO LEAVE TOWN", paletteInk);
     }
 
     drawText(12, 82, "LATEST", paletteGreen);
@@ -328,7 +344,7 @@ static void drawInfoPage(void)
 static void drawControlsPage(void)
 {
     drawText(12, 39, "CONTROLS", paletteGreen);
-    if (view == VIEW_FARM)
+    if (view != VIEW_TOWN)
     {
         drawText(12, 51, "D-PAD  WALK  |  START  TOWN", paletteInk);
         drawText(12, 61, "A  INTERACT: PLANT OR HARVEST", paletteInk);
@@ -341,9 +357,9 @@ static void drawControlsPage(void)
     {
         drawText(12, 51, "D-PAD  CHOOSE A LOCATION", paletteInk);
         drawText(12, 61, "A  VISIT OR USE LOCATION", paletteInk);
-        drawText(12, 71, "B  RETURN TO THE FARM", paletteInk);
+        drawText(12, 71, "B  LEAVE TOWN", paletteInk);
         drawText(12, 81, "L/R  CHOOSE SEASONAL STOCK", paletteInk);
-        drawText(12, 91, "START  SWITCH BACK TO FARM", paletteInk);
+        drawText(12, 91, "START  LEAVE TOWN", paletteInk);
     }
 }
 

@@ -10,13 +10,14 @@ const char *const seasonNames[4] = {
 
 SaveData game;
 int view = VIEW_FARM;
+int townReturnView = VIEW_FARM;
 int focus = -1;
 int townFocus = TOWN_STORE;
 int selectedSlot;
 int selectedShopCrop;
 char message[48] = "Welcome to Lynxibear Valley!";
 
-static const unsigned startingTreeTiles[] = {0, 7, 32};
+static const unsigned startingTreeTiles[] = {0, 7, 40};
 
 static InventorySlot *inventoryAt(bool storage, unsigned slot)
 {
@@ -121,6 +122,28 @@ bool gameIsRaining(void)
     return ((game.day + game.season * 3) % 6) == 0;
 }
 
+// Scatters a few trees over every screen except home. Trees stay off the outer
+// ring of tiles so walking onto a new screen never lands on one.
+void gameGenerateWildTrees(SaveData *data)
+{
+    for (int screen = 0; screen < WORLD_SCREENS; screen++)
+    {
+        if (screen == HOME_SCREEN)
+            continue;
+
+        u32 seed = (u32)screen * 2654435761u + 12345u;
+        data->treeMask[screen] = 0;
+        for (int i = 0; i < 6; i++)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            unsigned row = 1 + (seed >> 16) % (FIELD_ROWS - 2);
+            seed = seed * 1664525u + 1013904223u;
+            unsigned column = 1 + (seed >> 16) % (FIELD_COLUMNS - 2);
+            data->treeMask[screen] |= (u64)1 << (row * FIELD_COLUMNS + column);
+        }
+    }
+}
+
 void gameNew(void)
 {
     memset(&game, 0, sizeof(game));
@@ -133,8 +156,11 @@ void gameNew(void)
     game.inventory[2] = (InventorySlot){ITEM_WATERING_CAN, 1};
     game.inventory[3] = (InventorySlot){itemSeedId(0), STARTING_SEEDS};
     for (unsigned i = 0; i < sizeof(startingTreeTiles) / sizeof(startingTreeTiles[0]); i++)
-        game.treeMask |= (u64)1 << startingTreeTiles[i];
+        game.treeMask[HOME_SCREEN] |= (u64)1 << startingTreeTiles[i];
+    gameGenerateWildTrees(&game);
+    game.screen = HOME_SCREEN;
     view = VIEW_FARM;
+    townReturnView = VIEW_FARM;
     focus = -1;
     townFocus = TOWN_STORE;
     selectedSlot = 1;
@@ -146,8 +172,10 @@ FarmTile *gameFocusedTile(void)
 {
     if (focus < 0 || focus >= FIELD_COLUMNS * FIELD_ROWS)
         return NULL;
+    if (game.screen == HOME_SCREEN && focus == HOME_EXIT_TILE)
+        return NULL;
 
-    return &game.farm[focus / FIELD_COLUMNS][focus % FIELD_COLUMNS];
+    return &CURRENT_FARM[focus / FIELD_COLUMNS][focus % FIELD_COLUMNS];
 }
 
 bool gameMoveInventoryItem(bool fromStorage, unsigned fromSlot,
@@ -180,7 +208,7 @@ void gameHoeTile(void)
 {
     FarmTile *tile = gameFocusedTile();
 
-    if (focus >= 0 && (game.treeMask & ((u64)1 << focus)) != 0)
+    if (focus >= 0 && (CURRENT_TREES & ((u64)1 << focus)) != 0)
         snprintf(message, sizeof(message), "A tree blocks this patch. Use the axe.");
     else if (tile == NULL)
         snprintf(message, sizeof(message), "Face a plot to use your hoe.");
@@ -199,7 +227,7 @@ void gameHoeTile(void)
 void gameInteractFarm(void)
 {
     FarmTile *tile = gameFocusedTile();
-    if (focus >= 0 && (game.treeMask & ((u64)1 << focus)) != 0)
+    if (focus >= 0 && (CURRENT_TREES & ((u64)1 << focus)) != 0)
     {
         snprintf(message, sizeof(message), "A tree stands here. Use the axe.");
         return;
@@ -261,7 +289,7 @@ void gameWaterTile(void)
 {
     FarmTile *tile = gameFocusedTile();
 
-    if (focus >= 0 && (game.treeMask & ((u64)1 << focus)) != 0)
+    if (focus >= 0 && (CURRENT_TREES & ((u64)1 << focus)) != 0)
         snprintf(message, sizeof(message), "A tree stands here; crops need water.");
     else if (tile == NULL)
         snprintf(message, sizeof(message), "Face a growing crop to water it.");
@@ -314,29 +342,32 @@ void gameSleepUntilMorning(void)
         game.gold += earned;
 
     bool wasRaining = gameIsRaining();
-    for (int row = 0; row < FIELD_ROWS; row++)
+    for (int screen = 0; screen < WORLD_SCREENS; screen++)
     {
-        for (int column = 0; column < FIELD_COLUMNS; column++)
+        for (int row = 0; row < FIELD_ROWS; row++)
         {
-            FarmTile *tile = &game.farm[row][column];
-            if (tile->crop != CROP_EMPTY)
+            for (int column = 0; column < FIELD_COLUMNS; column++)
             {
-                if (crops[tile->crop - 1].season != gameCurrentSeason())
+                FarmTile *tile = &game.farm[screen][row][column];
+                if (tile->crop != CROP_EMPTY)
                 {
-                    tile->crop = CROP_EMPTY;
-                    tile->growth = 0;
-                    tile->watered = false;
-                    continue;
+                    if (crops[tile->crop - 1].season != gameCurrentSeason())
+                    {
+                        tile->crop = CROP_EMPTY;
+                        tile->growth = 0;
+                        tile->watered = false;
+                        continue;
+                    }
+
+                    if (wasRaining || tile->watered)
+                    {
+                        if (tile->growth < crops[tile->crop - 1].daysToGrow)
+                            tile->growth++;
+                    }
                 }
 
-                if (wasRaining || tile->watered)
-                {
-                    if (tile->growth < crops[tile->crop - 1].daysToGrow)
-                        tile->growth++;
-                }
+                tile->watered = false;
             }
-
-            tile->watered = false;
         }
     }
 
@@ -345,16 +376,19 @@ void gameSleepUntilMorning(void)
     {
         game.day = 1;
         game.season = (game.season + 1) % 4;
-        for (int row = 0; row < FIELD_ROWS; row++)
+        for (int screen = 0; screen < WORLD_SCREENS; screen++)
         {
-            for (int column = 0; column < FIELD_COLUMNS; column++)
+            for (int row = 0; row < FIELD_ROWS; row++)
             {
-                FarmTile *tile = &game.farm[row][column];
-                if (tile->crop != CROP_EMPTY &&
-                    crops[tile->crop - 1].season != gameCurrentSeason())
+                for (int column = 0; column < FIELD_COLUMNS; column++)
                 {
-                    tile->crop = CROP_EMPTY;
-                    tile->growth = 0;
+                    FarmTile *tile = &game.farm[screen][row][column];
+                    if (tile->crop != CROP_EMPTY &&
+                        crops[tile->crop - 1].season != gameCurrentSeason())
+                    {
+                        tile->crop = CROP_EMPTY;
+                        tile->growth = 0;
+                    }
                 }
             }
         }
@@ -373,7 +407,7 @@ void gameSleepUntilMorning(void)
 
 static void gameChopTree(void)
 {
-    if (focus < 0 || (game.treeMask & ((u64)1 << focus)) == 0)
+    if (focus < 0 || (CURRENT_TREES & ((u64)1 << focus)) == 0)
     {
         snprintf(message, sizeof(message), "Face a tree to chop it.");
         return;
@@ -389,7 +423,7 @@ static void gameChopTree(void)
         return;
     }
 
-    game.treeMask &= ~((u64)1 << focus);
+    CURRENT_TREES &= ~((u64)1 << focus);
     spendEnergy(6);
     snprintf(message, sizeof(message), "Chopped the tree. Gathered 3 wood.");
 }
@@ -462,8 +496,9 @@ void gameInteractTown(void)
 {
     if (townFocus == TOWN_FARM_GATE)
     {
-        view = VIEW_FARM;
-        snprintf(message, sizeof(message), "Back to the farm. What will you grow?");
+        view = townReturnView;
+        snprintf(message, sizeof(message), view == VIEW_ROADS ?
+                 "Back on the crossroads." : "Back to the farm. What will you grow?");
         return;
     }
 

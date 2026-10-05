@@ -26,6 +26,7 @@ typedef struct
 
 static TileLook drawnLook[FARM_TILE_COUNT];
 static bool farmDrawn;
+static int drawnScreen;
 
 static void setClip(int left, int top, int right, int bottom)
 {
@@ -216,10 +217,10 @@ static void drawTree(int x, int y)
 
 static TileLook tileLook(int tile)
 {
-    const FarmTile *farmTile = &game.farm[tile / FIELD_COLUMNS]
+    const FarmTile *farmTile = &CURRENT_FARM[tile / FIELD_COLUMNS]
                                          [tile % FIELD_COLUMNS];
     TileLook look = { farmTile->tilled, farmTile->watered, farmTile->crop,
-                      0, (u8)((game.treeMask >> tile) & 1) };
+                      0, (u8)((CURRENT_TREES >> tile) & 1) };
 
     if (farmTile->crop != CROP_EMPTY)
     {
@@ -238,7 +239,7 @@ static void drawFarmTile(int tile)
 {
     int row = tile / FIELD_COLUMNS;
     int column = tile % FIELD_COLUMNS;
-    const FarmTile *farmTile = &game.farm[row][column];
+    const FarmTile *farmTile = &CURRENT_FARM[row][column];
     int x = FIELD_LEFT + column * TILE_SIZE;
     int y = FIELD_TOP + row * TILE_SIZE;
 
@@ -259,10 +260,44 @@ static void drawFarmTile(int tile)
 
 static void drawFarmTree(int tile)
 {
-    if ((game.treeMask & ((u64)1 << tile)) == 0)
+    if ((CURRENT_TREES & ((u64)1 << tile)) == 0)
         return;
     drawTree(FIELD_LEFT + (tile % FIELD_COLUMNS) * TILE_SIZE - 2,
              FIELD_TOP + (tile / FIELD_COLUMNS) * TILE_SIZE - 4);
+}
+
+// Dirt path with a few darker flecks; flecks are placed from the absolute
+// coordinates so partial and full redraws match.
+static void drawPathArea(int x, int y, int width, int height)
+{
+    static const u16 pathBase = COLOR(24, 19, 13);
+    static const u16 pathFleck = COLOR(21, 15, 11);
+    fillRect(x, y, width, height, pathBase);
+    for (int row = y; row < y + height; row += 4)
+    {
+        for (int column = x; column < x + width; column += 4)
+        {
+            unsigned hash = (unsigned)(column * 73856093) ^ (unsigned)(row * 19349663);
+            if (((hash >> 5) % 5) == 0)
+                fillRect(column + (int)((hash >> 9) & 1), row + (int)((hash >> 11) & 1),
+                         2, 1, pathFleck);
+        }
+    }
+}
+
+// The road out of the home field: a path through the right-hand fence.
+static void drawHomeExit(void)
+{
+    if (game.screen != HOME_SCREEN)
+        return;
+
+    int x = FIELD_LEFT + (FIELD_COLUMNS - 1) * TILE_SIZE;
+    int y = FIELD_TOP + HOME_EXIT_ROW * TILE_SIZE;
+    drawPathArea(x, y, SCREEN_WIDTH - x, TILE_SIZE - 1);
+    for (int fenceY = 40; fenceY <= 72; fenceY += 16)
+        drawPackedTile(sproutFenceTiles[3], sproutFencePalette, 240, fenceY, 5);
+    for (int fenceY = 128; fenceY <= 160; fenceY += 16)
+        drawPackedTile(sproutFenceTiles[3], sproutFencePalette, 240, fenceY, 5);
 }
 
 // Repaints everything inside the current clip rectangle.
@@ -273,12 +308,14 @@ static void drawFarmClipped(void)
         drawFarmTile(tile);
     for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
         drawFarmTree(tile);
+    drawHomeExit();
 }
 
 static void drawFarm(void)
 {
-    if (!farmDrawn)
+    if (!farmDrawn || drawnScreen != game.screen)
     {
+        drawnScreen = game.screen;
         resetClip();
         drawFarmClipped();
         for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
@@ -340,6 +377,82 @@ static void drawTown(void)
     fillRect(0, 188, SCREEN_WIDTH, 4, COLOR(20, 25, 17));
 }
 
+// Crossroads: a 16x12 grid of 16 px cells. A horizontal road (rows 5-6) is
+// crossed by a vertical road (columns 7-8), both fenced, with trees and
+// bushes in the four corners outside the fences.
+enum
+{
+    ROADS_COLUMNS = 16,
+    ROADS_ROWS = 12,
+    FENCE_H_MID = 0,
+    FENCE_H_LEFT_END,
+    FENCE_H_RIGHT_END,
+    FENCE_V_MID,
+    FENCE_V_TOP_END,
+    FENCE_V_BOTTOM_END
+};
+
+static int roadsFence(int column, int row)
+{
+    if (row == 4 || row == 7)
+    {
+        if (column <= 6)
+            return column == 6 ? FENCE_H_RIGHT_END : FENCE_H_MID;
+        if (column >= 9)
+            return column == 9 ? FENCE_H_LEFT_END : FENCE_H_MID;
+        return -1;
+    }
+
+    if (column == 6 || column == 9)
+    {
+        if (row <= 3)
+            return row == 3 ? FENCE_V_BOTTOM_END : FENCE_V_MID;
+        if (row >= 8)
+            return row == 8 ? FENCE_V_TOP_END : FENCE_V_MID;
+    }
+    return -1;
+}
+
+bool mapsRoadsSolid(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= SCREEN_WIDTH || y >= SCREEN_HEIGHT)
+        return false;
+    return roadsFence(x / 16, y / 16) >= 0;
+}
+
+static void drawRoads(void)
+{
+    static const short trees[][2] = {
+        {4, 4}, {54, 20}, {166, 4}, {214, 22},
+        {6, 140}, {54, 152}, {166, 134}, {214, 148},
+    };
+    static const short bushes[][3] = {
+        {40, 6, 0}, {8, 44, 1}, {76, 44, 0}, {204, 2, 0}, {170, 44, 1}, {240, 4, 0},
+        {36, 140, 1}, {84, 150, 0}, {10, 176, 0}, {204, 134, 0}, {172, 172, 1}, {236, 176, 1},
+    };
+
+    drawGrassMeadow();
+    drawPathArea(0, 80, SCREEN_WIDTH, 32);
+    drawPathArea(112, 0, 32, SCREEN_HEIGHT);
+
+    for (int row = 0; row < ROADS_ROWS; row++)
+    {
+        for (int column = 0; column < ROADS_COLUMNS; column++)
+        {
+            int fence = roadsFence(column, row);
+            if (fence >= 0)
+                drawPackedTile(sproutFenceTiles[fence], sproutFencePalette,
+                               column * 16, row * 16, 5);
+        }
+    }
+
+    for (unsigned i = 0; i < sizeof(bushes) / sizeof(bushes[0]); i++)
+        drawPackedTile(sproutBushTiles[bushes[i][2]], sproutBushPalette,
+                       bushes[i][0], bushes[i][1], 5);
+    for (unsigned i = 0; i < sizeof(trees) / sizeof(trees[0]); i++)
+        drawTree(trees[i][0], trees[i][1]);
+}
+
 void mapsInitialize(u16 *bitmap)
 {
     frameBuffer = bitmap;
@@ -382,6 +495,11 @@ void mapsDraw(int mapId)
     if (mapId == VIEW_TOWN)
     {
         drawTown();
+        farmDrawn = false;
+    }
+    else if (mapId == VIEW_ROADS)
+    {
+        drawRoads();
         farmDrawn = false;
     }
     else

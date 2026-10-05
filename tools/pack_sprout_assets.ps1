@@ -213,6 +213,7 @@ try {
     $plantSheet = Open-ZipImage $spriteArchive "Objects/Basic Plants.png"
     $utilitySheet = Open-ZipImage $spriteArchive "Objects/Basic tools and meterials.png"
     $environmentSheet = Open-ZipImage $spriteArchive "Objects/Basic Grass Biom things 1.png"
+    $fenceSheet = Open-ZipImage $spriteArchive "Tilesets/Fences.png"
     $grassTilesSheet = Open-ZipImage $spriteArchive "Tilesets/Grass.png"
     $soilTilesSheet = Open-ZipImage $spriteArchive "Tilesets/Tilled Dirt.png"
     $emojiSheet = Open-ZipImage $uiArchive "emojis-free/Emoji_Spritesheet_Free.png"
@@ -267,6 +268,20 @@ try {
         }
     }
     $buttonAssets = Convert-FramesTo4Bpp $buttonFrames
+
+    # Fences.png cells (column, row): horizontal middle/left end/right end, then
+    # vertical middle/top end/bottom end.
+    $fenceCells = @(@(2, 3), @(1, 3), @(3, 3), @(0, 1), @(0, 0), @(0, 2))
+    $fenceFrames = [byte[][]]::new($fenceCells.Count)
+    for ($i = 0; $i -lt $fenceCells.Count; $i++) {
+        $fenceFrames[$i] = Get-RegionPixels $fenceSheet ($fenceCells[$i][0] * 16) ($fenceCells[$i][1] * 16) 16 16
+    }
+    $fenceAssets = Convert-FramesTo4Bpp $fenceFrames
+
+    $bushFrames = [byte[][]]::new(2)
+    $bushFrames[0] = Get-RegionPixels $environmentSheet 16 48 16 16
+    $bushFrames[1] = Get-RegionPixels $environmentSheet 0 48 16 16
+    $bushAssets = Convert-FramesTo4Bpp $bushFrames
 
     $treeFrames = [byte[][]]::new(1)
     $treeFrames[0] = Get-RegionPixels $environmentSheet 16 0 32 32 32 32
@@ -346,6 +361,8 @@ try {
         @($actionAssets.Frames | Where-Object { $_.Length -ne 2048 }).Count -ne 0 -or
         $treeAssets.Frames[0].Length -ne 512 -or
         @($buttonAssets.Frames | Where-Object { $_.Length -ne 512 }).Count -ne 0 -or
+        @($fenceAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
+        @($bushAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
         $seedAssets.Frames[0].Length -ne 128 -or
         $settingsIconAssets.Frames[0].Length -ne 128 -or
         @($grassAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
@@ -370,6 +387,10 @@ extern const u8 sproutToolActions[24][2048];
 extern const u16 sproutToolActionPalette[16];
 extern const u8 sproutMenuButton[6][512];
 extern const u16 sproutMenuButtonPalette[16];
+extern const u8 sproutFenceTiles[6][128];
+extern const u16 sproutFencePalette[16];
+extern const u8 sproutBushTiles[2][128];
+extern const u16 sproutBushPalette[16];
 extern const u8 sproutTreeSprite[512];
 extern const u16 sproutTreePalette[16];
 extern const u8 sproutSeedIcon[128];
@@ -429,6 +450,22 @@ extern const u16 sproutGrowthPalette[16];
     [void]$builder.AppendLine("};")
     [void]$builder.AppendLine()
     Write-Palette $builder "sproutMenuButtonPalette" $buttonAssets.Palette
+    [void]$builder.AppendLine("const u8 sproutFenceTiles[6][128] = {")
+    foreach ($frame in $fenceAssets.Frames) {
+        $row = for ($i = 0; $i -lt $frame.Length; $i++) { "0x{0:X2}" -f $frame[$i] }
+        [void]$builder.AppendLine("    { " + ($row -join ", ") + " },")
+    }
+    [void]$builder.AppendLine("};")
+    [void]$builder.AppendLine()
+    Write-Palette $builder "sproutFencePalette" $fenceAssets.Palette
+    [void]$builder.AppendLine("const u8 sproutBushTiles[2][128] = {")
+    foreach ($frame in $bushAssets.Frames) {
+        $row = for ($i = 0; $i -lt $frame.Length; $i++) { "0x{0:X2}" -f $frame[$i] }
+        [void]$builder.AppendLine("    { " + ($row -join ", ") + " },")
+    }
+    [void]$builder.AppendLine("};")
+    [void]$builder.AppendLine()
+    Write-Palette $builder "sproutBushPalette" $bushAssets.Palette
     Write-ByteArray $builder "sproutTreeSprite" $treeAssets.Frames[0]
     Write-Palette $builder "sproutTreePalette" $treeAssets.Palette
     Write-ByteArray $builder "sproutSeedIcon" $seedAssets.Frames[0]
