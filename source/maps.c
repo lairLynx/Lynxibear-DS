@@ -4,23 +4,68 @@
 #include "items.h"
 #include "sprout_assets.h"
 
+#include <string.h>
+
 static u16 *frameBuffer;
+
+// All drawing is clipped to this rectangle so a partial redraw can repaint
+// a few tiles without touching the rest of the bitmap.
+static int clipLeft = 0;
+static int clipTop = 0;
+static int clipRight = SCREEN_WIDTH;
+static int clipBottom = SCREEN_HEIGHT;
+
+typedef struct
+{
+    u8 tilled;
+    u8 watered;
+    u8 crop;
+    u8 stage;
+    u8 tree;
+} TileLook;
+
+static TileLook drawnLook[FARM_TILE_COUNT];
+static bool farmDrawn;
+
+static void setClip(int left, int top, int right, int bottom)
+{
+    clipLeft = left < 0 ? 0 : left;
+    clipTop = top < 0 ? 0 : top;
+    clipRight = right > SCREEN_WIDTH ? SCREEN_WIDTH : right;
+    clipBottom = bottom > SCREEN_HEIGHT ? SCREEN_HEIGHT : bottom;
+}
+
+static void resetClip(void)
+{
+    setClip(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+}
+
+static void putPixel(int x, int y, u16 color)
+{
+    if (x >= clipLeft && x < clipRight && y >= clipTop && y < clipBottom)
+        frameBuffer[y * SCREEN_WIDTH + x] = color;
+}
+
+static bool intersectsClip(int x, int y, int width, int height)
+{
+    return x < clipRight && x + width > clipLeft &&
+           y < clipBottom && y + height > clipTop;
+}
 
 static const u16 grassBaseColor = COLOR(15, 23, 10);
 static const u16 soilBaseColor = COLOR(17, 11, 6);
 
 static void fillRect(int x, int y, int width, int height, u16 color)
 {
-    for (int row = y; row < y + height; row++)
-    {
-        if (row < 0 || row >= SCREEN_HEIGHT)
-            continue;
+    int top = y > clipTop ? y : clipTop;
+    int bottom = y + height < clipBottom ? y + height : clipBottom;
+    int left = x > clipLeft ? x : clipLeft;
+    int right = x + width < clipRight ? x + width : clipRight;
 
-        for (int column = x; column < x + width; column++)
-        {
-            if (column >= 0 && column < SCREEN_WIDTH)
-                frameBuffer[row * SCREEN_WIDTH + column] = color;
-        }
+    for (int row = top; row < bottom; row++)
+    {
+        for (int column = left; column < right; column++)
+            frameBuffer[row * SCREEN_WIDTH + column] = color;
     }
 }
 
@@ -53,6 +98,9 @@ static u16 shadeColor(u16 color, unsigned numerator, unsigned denominator)
 static void drawPackedTile(const u8 *sprite, const u16 *palette,
                            int x, int y, unsigned shade)
 {
+    if (!intersectsClip(x, y, 16, 16))
+        return;
+
     for (int row = 0; row < 16; row++)
     {
         for (int column = 0; column < 16; column++)
@@ -64,11 +112,7 @@ static void drawPackedTile(const u8 *sprite, const u16 *palette,
             u16 color = palette[index];
             if (shade < 5)
                 color = shadeColor(color, shade, 5);
-            int screenX = x + column;
-            int screenY = y + row;
-            if (screenX >= 0 && screenX < SCREEN_WIDTH &&
-                screenY >= 0 && screenY < SCREEN_HEIGHT)
-                frameBuffer[screenY * SCREEN_WIDTH + screenX] = color;
+            putPixel(x + column, y + row, color);
         }
     }
 }
@@ -78,11 +122,18 @@ static void drawTexturedArea(const u8 *sprite, const u16 *palette,
                              unsigned shade)
 {
     fillRect(x, y, width, height, soilBaseColor);
+    // The 16 px texture tiles overhang the area; keep them inside it.
+    int savedLeft = clipLeft, savedTop = clipTop;
+    int savedRight = clipRight, savedBottom = clipBottom;
+    setClip(x > clipLeft ? x : clipLeft, y > clipTop ? y : clipTop,
+            x + width < clipRight ? x + width : clipRight,
+            y + height < clipBottom ? y + height : clipBottom);
     for (int row = 0; row < height; row += 16)
     {
         for (int column = 0; column < width; column += 16)
             drawPackedTile(sprite, palette, x + column, y + row, shade);
     }
+    setClip(savedLeft, savedTop, savedRight, savedBottom);
 }
 
 static void drawGrassMeadow(void)
@@ -130,9 +181,8 @@ static void drawCrop(const FarmTile *tile, int x, int y)
                 unsigned index = packedTilePixel(
                     sproutCropIcons[cropIndex], column, row);
                 if (index != 0)
-                    frameBuffer[(y + row + 2) * SCREEN_WIDTH +
-                                x + column + 8] =
-                        sproutCropPalettes[cropIndex][index];
+                    putPixel(x + column + 8, y + row + 2,
+                             sproutCropPalettes[cropIndex][index]);
             }
         }
     }
@@ -148,6 +198,9 @@ static unsigned packedSpritePixel(const u8 *sprite, int x, int y)
 
 static void drawTree(int x, int y)
 {
+    if (!intersectsClip(x, y, 32, 32))
+        return;
+
     for (int row = 0; row < 32; row++)
     {
         for (int column = 0; column < 32; column++)
@@ -155,47 +208,101 @@ static void drawTree(int x, int y)
             unsigned paletteIndex = packedSpritePixel(sproutTreeSprite,
                                                        column, row);
             if (paletteIndex != 0)
-                frameBuffer[(y + row) * SCREEN_WIDTH + x + column] =
-                    sproutTreePalette[paletteIndex];
+                putPixel(x + column, y + row,
+                         sproutTreePalette[paletteIndex]);
         }
     }
+}
+
+static TileLook tileLook(int tile)
+{
+    const FarmTile *farmTile = &game.farm[tile / FIELD_COLUMNS]
+                                         [tile % FIELD_COLUMNS];
+    TileLook look = { farmTile->tilled, farmTile->watered, farmTile->crop,
+                      0, (u8)((game.treeMask >> tile) & 1) };
+
+    if (farmTile->crop != CROP_EMPTY)
+    {
+        const CropInfo *crop = &crops[farmTile->crop - 1];
+        unsigned stage = farmTile->growth * 4 / crop->daysToGrow;
+        if (stage > 3)
+            stage = 3;
+        look.stage = (u8)stage;
+        if (farmTile->growth >= crop->daysToGrow)
+            look.stage |= 4;
+    }
+    return look;
+}
+
+static void drawFarmTile(int tile)
+{
+    int row = tile / FIELD_COLUMNS;
+    int column = tile % FIELD_COLUMNS;
+    const FarmTile *farmTile = &game.farm[row][column];
+    int x = FIELD_LEFT + column * TILE_SIZE;
+    int y = FIELD_TOP + row * TILE_SIZE;
+
+    if (!intersectsClip(x, y, TILE_SIZE, TILE_SIZE))
+        return;
+
+    if (farmTile->tilled)
+    {
+        unsigned texture = (unsigned)(row * 2 + column) % 3;
+        drawTexturedArea(sproutSoilTiles[texture], sproutSoilPalette,
+                         x, y, TILE_SIZE - 1, TILE_SIZE - 1,
+                         farmTile->watered ? 3 : 4);
+    }
+
+    if (farmTile->crop != CROP_EMPTY)
+        drawCrop(farmTile, x, y);
+}
+
+static void drawFarmTree(int tile)
+{
+    if ((game.treeMask & ((u64)1 << tile)) == 0)
+        return;
+    drawTree(FIELD_LEFT + (tile % FIELD_COLUMNS) * TILE_SIZE - 2,
+             FIELD_TOP + (tile / FIELD_COLUMNS) * TILE_SIZE - 4);
+}
+
+// Repaints everything inside the current clip rectangle.
+static void drawFarmClipped(void)
+{
+    drawGrassMeadow();
+    for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
+        drawFarmTile(tile);
+    for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
+        drawFarmTree(tile);
 }
 
 static void drawFarm(void)
 {
-    drawGrassMeadow();
-
-    for (int row = 0; row < FIELD_ROWS; row++)
+    if (!farmDrawn)
     {
-        for (int column = 0; column < FIELD_COLUMNS; column++)
-        {
-            const FarmTile *tile = &game.farm[row][column];
-            int x = FIELD_LEFT + column * TILE_SIZE;
-            int y = FIELD_TOP + row * TILE_SIZE;
-            if (tile->tilled)
-            {
-                unsigned texture = (unsigned)(row * 2 + column) % 3;
-                drawTexturedArea(sproutSoilTiles[texture], sproutSoilPalette,
-                                 x, y, TILE_SIZE - 1, TILE_SIZE - 1,
-                                 tile->watered ? 3 : 4);
-            }
-
-            if (tile->crop != CROP_EMPTY)
-                drawCrop(tile, x, y);
-        }
+        resetClip();
+        drawFarmClipped();
+        for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
+            drawnLook[tile] = tileLook(tile);
+        farmDrawn = true;
+        return;
     }
 
+    // Repaint only tiles whose appearance changed. A tree sprite overhangs
+    // its tile (2 px sideways, 4 px upward), so the clip covers that too.
     for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
     {
-        if ((game.treeMask & ((u64)1 << tile)) == 0)
+        TileLook now = tileLook(tile);
+        if (memcmp(&now, &drawnLook[tile], sizeof(now)) == 0)
             continue;
-        int x = FIELD_LEFT + (tile % FIELD_COLUMNS) * TILE_SIZE - 2;
-        int y = FIELD_TOP + (tile / FIELD_COLUMNS) * TILE_SIZE - 4;
-        drawTree(x, y);
+
+        int x = FIELD_LEFT + (tile % FIELD_COLUMNS) * TILE_SIZE;
+        int y = FIELD_TOP + (tile / FIELD_COLUMNS) * TILE_SIZE;
+        setClip(x - 2, y - 4, x + TILE_SIZE + 2, y + TILE_SIZE);
+        drawFarmClipped();
+        drawnLook[tile] = now;
     }
-
+    resetClip();
 }
-
 static void drawTown(void)
 {
     fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR(15, 23, 30));
@@ -240,8 +347,14 @@ void mapsInitialize(u16 *bitmap)
 
 void mapsDraw(int mapId)
 {
+    resetClip();
     if (mapId == VIEW_TOWN)
+    {
         drawTown();
+        farmDrawn = false;
+    }
     else
+    {
         drawFarm();
+    }
 }

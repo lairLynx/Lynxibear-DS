@@ -26,19 +26,23 @@ static void setHighlightPixel(int x, int y)
     packed[pixel / 2] |= pixel & 1 ? 0x10 : 0x01;
 }
 
+// Outline of the 28x28 tile, placed 18 px inside the 64x64 sprite.
 static void initializeHighlightSprite(void)
 {
     memset(highlightGfx, 0, 64 * 64 / 2);
-    for (int offset = 14; offset < 50; offset++)
+    for (int x = 18; x < 46; x++)
     {
-        setHighlightPixel(offset, 14);
-        setHighlightPixel(offset, 15);
-        setHighlightPixel(offset, 48);
-        setHighlightPixel(offset, 49);
-        setHighlightPixel(14, offset);
-        setHighlightPixel(15, offset);
-        setHighlightPixel(48, offset);
-        setHighlightPixel(49, offset);
+        setHighlightPixel(x, 18);
+        setHighlightPixel(x, 19);
+        setHighlightPixel(x, 44);
+        setHighlightPixel(x, 45);
+    }
+    for (int y = 18; y < 46; y++)
+    {
+        setHighlightPixel(18, y);
+        setHighlightPixel(19, y);
+        setHighlightPixel(44, y);
+        setHighlightPixel(45, y);
     }
 }
 
