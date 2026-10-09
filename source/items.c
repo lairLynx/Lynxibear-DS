@@ -1,15 +1,15 @@
 #include "items.h"
 
 const CropInfo crops[CROP_COUNT] = {
-    {"Parsnip", "Spring", 2, SPRING, 30, 35, COLOR(28, 21, 9)},
-    {"Tomato", "Summer", 3, SUMMER, 45, 55, COLOR(29, 9, 7)},
-    {"Pumpkin", "Autumn", 4, AUTUMN, 60, 80, COLOR(30, 15, 5)},
-    {"Yam", "Winter", 5, WINTER, 75, 110, COLOR(19, 10, 20)},
-    {"Potato", "Spring", 3, SPRING, 35, 48, COLOR(24, 20, 13)},
-    {"Cauliflower", "Spring", 5, SPRING, 55, 82, COLOR(25, 25, 21)},
-    {"Corn", "Summer", 4, SUMMER, 50, 72, COLOR(29, 23, 8)},
-    {"Winter Root", "Winter", 4, WINTER, 55, 82, COLOR(23, 12, 8)},
-    {"Snow Yam", "Winter", 5, WINTER, 70, 105, COLOR(18, 17, 27)},
+    {"Parsnip", "Spring", 2, SPRING, 10, 35, COLOR(28, 21, 9)},
+    {"Tomato", "Summer", 3, SUMMER, 15, 55, COLOR(29, 9, 7)},
+    {"Pumpkin", "Autumn", 4, AUTUMN, 20, 80, COLOR(30, 15, 5)},
+    {"Yam", "Winter", 5, WINTER, 25, 110, COLOR(19, 10, 20)},
+    {"Potato", "Spring", 3, SPRING, 12, 48, COLOR(24, 20, 13)},
+    {"Cauliflower", "Spring", 5, SPRING, 19, 82, COLOR(25, 25, 21)},
+    {"Corn", "Summer", 4, SUMMER, 17, 72, COLOR(29, 23, 8)},
+    {"Winter Root", "Winter", 4, WINTER, 19, 82, COLOR(23, 12, 8)},
+    {"Snow Yam", "Winter", 5, WINTER, 24, 105, COLOR(18, 17, 27)},
 };
 
 unsigned itemSeedId(unsigned cropIndex)

@@ -108,7 +108,9 @@ enum
     WALK_MIN_Y = FIELD_TOP + 8,
     WALK_MAX_Y = FIELD_TOP + FIELD_ROWS * TILE_SIZE - 16,
     // Sprite y that centres the figure on the horizontal road.
-    ROADS_ENTRY_Y = 84
+    ROADS_ENTRY_Y = 84,
+    // Sprite y that puts the feet on the town's dirt road.
+    TOWN_ENTRY_Y = 134
 };
 
 static bool treeAt(int screen, int x, int y)
@@ -117,6 +119,9 @@ static bool treeAt(int screen, int x, int y)
     int row = (y + 8 - FIELD_TOP) / TILE_SIZE;
     if (column < 0 || column >= FIELD_COLUMNS || row < 0 || row >= FIELD_ROWS)
         return false;
+    if (gameIsHouseTile(screen, column, row) ||
+        gameIsBinTile(screen, column, row))
+        return true;
     return (game.treeMask[screen] & ((u64)1 << (row * FIELD_COLUMNS + column))) != 0;
 }
 
@@ -206,12 +211,11 @@ static bool moveOnRoads(int nextX, int nextY)
     }
     if (right >= SCREEN_WIDTH)
     {
-        townReturnView = VIEW_ROADS;
         view = VIEW_TOWN;
-        audioPlaySound(SOUND_SHOP_BELL);
-        playerX = SCREEN_WIDTH - 36;
-        playerY = ROADS_ENTRY_Y;
-        setStatus("Lynxibear Valley: choose a place to visit.");
+        audioPlaySound(SOUND_GATE);
+        playerX = 0;
+        playerY = TOWN_ENTRY_Y;
+        setStatus("Lynxibear Valley. Walk into a door to shop.");
         return true;
     }
     if (top < 0)
@@ -233,13 +237,135 @@ static bool moveOnRoads(int nextX, int nextY)
     return true;
 }
 
+static int enterShopRequested = -1;
+
+int playerTakeEnterShop(void)
+{
+    int shop = enterShopRequested;
+    enterShopRequested = -1;
+    return shop;
+}
+
+// The town streets: the road to the crossroads is on the west edge; the east
+// edge is closed. Walking into a shop door asks main to open the shop.
+static bool moveInTown(int nextX, int nextY)
+{
+    int left = nextX + 4;
+    int right = nextX + 19;
+    int top = nextY + 12;
+    int bottom = nextY + 19;
+
+    if (left < 0)
+    {
+        view = VIEW_ROADS;
+        audioPlaySound(SOUND_GATE);
+        playerX = SCREEN_WIDTH - 24;
+        playerY = ROADS_ENTRY_Y;
+        setStatus("Back on the crossroads.");
+        return true;
+    }
+    if (right >= SCREEN_WIDTH)
+    {
+        setStatus("The road east is closed for now.");
+        return false;
+    }
+    if (top < 0 || bottom >= SCREEN_HEIGHT)
+        return false;
+
+    int building = mapsTownBuildingAt(left, top, right, bottom);
+    if (building >= 0)
+    {
+        int shop = mapsTownBuildingShop(building);
+        int centre = (left + right) / 2;
+        int doorX = mapsTownBuildingDoorX(building);
+        if (shop < 0)
+            setStatus("The fish shop is closed for now.");
+        else if (centre >= doorX - 10 && centre <= doorX + 10)
+            enterShopRequested = shop;
+        return false;
+    }
+    if (mapsTownTreeSolid(left, top, right, bottom))
+        return false;
+
+    playerX = nextX;
+    playerY = nextY;
+    return true;
+}
+
+void playerPlaceAtShopDoor(int shop)
+{
+    for (int building = 0; building < TOWN_BUILDING_COUNT; building++)
+    {
+        if (mapsTownBuildingShop(building) == shop)
+            playerX = mapsTownBuildingDoorX(building) - 11;
+    }
+    playerY = mapsTownDoorFrontY() - 9;
+    facingX = 0;
+    facingY = 1;
+    toolAnimationTicks = 0;
+    walkTicks = 0;
+    updateFocusedPlot();
+}
+
+// The house door is the gap in the wall where the farmer can walk up into it.
+static bool stepsIntoHouse(int nextX, int nextY, int dy)
+{
+    if (view != VIEW_FARM || game.screen != HOME_SCREEN || dy >= 0)
+        return false;
+
+    int column = (nextX + 8 - FIELD_LEFT) / TILE_SIZE;
+    int row = (nextY + 8 - FIELD_TOP) / TILE_SIZE;
+    int doorCentre = FIELD_LEFT + (HOUSE_FIRST_COLUMN + HOUSE_COLUMNS / 2) * TILE_SIZE;
+    return gameIsHouseTile(game.screen, column, row) &&
+           nextX + 8 >= doorCentre - 12 && nextX + 8 <= doorCentre + 12;
+}
+
+static bool enterHouseRequested;
+
+bool playerTakeEnterHouse(void)
+{
+    bool requested = enterHouseRequested;
+    enterHouseRequested = false;
+    return requested;
+}
+
+static bool playerHidden;
+
+void playerSetHidden(bool hidden)
+{
+    playerHidden = hidden;
+}
+
+// Stands the farmer on the path just below the door, facing the field.
+void playerPlaceAtHouseDoor(void)
+{
+    int doorCentre = FIELD_LEFT + (HOUSE_FIRST_COLUMN + HOUSE_COLUMNS / 2) * TILE_SIZE;
+    playerX = doorCentre - 8;
+    playerY = FIELD_TOP + HOUSE_ROWS * TILE_SIZE + 2;
+    facingX = 0;
+    facingY = 1;
+    toolAnimationTicks = 0;
+    walkTicks = 0;
+    updateFocusedPlot();
+}
+
 static bool movePlayerBy(int dx, int dy)
 {
     int nextX = playerX + dx;
     int nextY = playerY + dy;
+    if (stepsIntoHouse(nextX, nextY, dy))
+    {
+        enterHouseRequested = true;
+        return false;
+    }
     if (view == VIEW_ROADS)
     {
         if (!moveOnRoads(nextX, nextY))
+            return false;
+    }
+    else if (view == VIEW_TOWN)
+    {
+        if (!moveInTown(nextX, nextY))
             return false;
     }
     else if (canMovePlayerTo(nextX, nextY))
@@ -312,7 +438,8 @@ void playerUpdateSprite(void)
     if (walkTicks >= FIRST_STEP_TICKS &&
         (walkTicks - FIRST_STEP_TICKS) % STEP_SOUND_TICKS == 0 &&
         toolAnimationTicks == 0)
-        audioPlaySound(view == VIEW_ROADS ? SOUND_STEP_DIRT : SOUND_STEP_GRASS);
+        audioPlaySound(view == VIEW_ROADS || view == VIEW_TOWN ? SOUND_STEP_DIRT
+                                                           : SOUND_STEP_GRASS);
     int frame = facingDirection() * 4 + (walkTicks / WALK_FRAME_TICKS) % 4;
     if (frame != displayedFrame)
     {
@@ -321,10 +448,10 @@ void playerUpdateSprite(void)
         displayedFrame = frame;
     }
 
-    bool swinging = toolAnimationTicks > 0 && view != VIEW_TOWN;
+    bool swinging = toolAnimationTicks > 0 && view != VIEW_SHOP && !playerHidden;
     oamSet(&oamMain, 0, playerX - 4, playerY - 8, 0, 0,
            SpriteSize_32x32, SpriteColorFormat_16Color,
-           playerGfx, -1, false, view == VIEW_TOWN || swinging,
+           playerGfx, -1, false, view == VIEW_SHOP || swinging || playerHidden,
            false, false, false);
     if (swinging)
     {
@@ -350,7 +477,7 @@ void playerUpdateSprite(void)
                SpriteColorFormat_16Color, actionGfx, -1, false,
                true, false, false, false);
     }
-    bool hideHighlight = view != VIEW_FARM || focus < 0 ||
+    bool hideHighlight = playerHidden || view != VIEW_FARM || focus < 0 ||
                          game.tileHighlighter == 0;
     int highlightX = 0;
     int highlightY = 0;

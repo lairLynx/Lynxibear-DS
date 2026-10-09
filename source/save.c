@@ -163,15 +163,19 @@ static bool validWorld(const SaveData *data)
     return true;
 }
 
-static bool validCurrentSave(const SaveData *data)
+// Version 7 files are the current layout without the trailing shipping bin.
+#define SAVE_V7_SIZE offsetof(SaveData, bin)
+
+// Checks everything except the bin; `size` is how many bytes the checksum covers.
+static bool validSaveBody(const SaveData *data, u32 version, size_t size)
 {
-    if (data->magic != SAVE_MAGIC || data->version != SAVE_VERSION ||
+    if (data->magic != SAVE_MAGIC || data->version != version ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
         data->tileHighlighter > 1 || data->screen >= WORLD_SCREENS ||
         !validWorld(data) ||
-        data->checksum != checksumBytes(data, sizeof(*data),
+        data->checksum != checksumBytes(data, size,
                                         offsetof(SaveData, checksum)))
         return false;
 
@@ -191,6 +195,19 @@ static bool validCurrentSave(const SaveData *data)
         }
     }
 
+    return true;
+}
+
+static bool validCurrentSave(const SaveData *data)
+{
+    if (!validSaveBody(data, SAVE_VERSION, sizeof(*data)))
+        return false;
+
+    for (unsigned crop = 0; crop < CROP_COUNT; crop++)
+    {
+        if (data->bin[crop] > MAX_STACK)
+            return false;
+    }
     return true;
 }
 
@@ -374,6 +391,23 @@ static bool readCurrentSave(const char *path, SaveData *data)
     bool readOk = fread(data, sizeof(*data), 1, file) == 1;
     fclose(file);
     return readOk && validCurrentSave(data);
+}
+
+// Reads a version 7 file into the current layout with an empty shipping bin.
+static bool readV7Save(const char *path, SaveData *data)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+        return false;
+
+    memset(data, 0, sizeof(*data));
+    bool readOk = fread(data, SAVE_V7_SIZE, 1, file) == 1;
+    fclose(file);
+    if (!readOk || !validSaveBody(data, 7, SAVE_V7_SIZE))
+        return false;
+
+    data->version = SAVE_VERSION;
+    return true;
 }
 
 static bool readV6Save(const char *path, SaveDataV6 *data)
@@ -651,6 +685,13 @@ static bool readSave(const char *path, SaveData *data, bool *migrated)
         *migrated = false;
     if (readCurrentSave(path, data))
         return true;
+
+    if (readV7Save(path, data))
+    {
+        if (migrated != NULL)
+            *migrated = true;
+        return true;
+    }
 
     SaveDataV6 previous;
     if (readV6Save(path, &previous))

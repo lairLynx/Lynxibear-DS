@@ -21,7 +21,7 @@ enum
     MAX_STACK = 99,
     BASE_ENERGY = 100,
     MAX_GOLD = 9999,
-    SAVE_VERSION = 7,
+    SAVE_VERSION = 8,
     WORLD_COLUMNS = 3,
     WORLD_ROWS = 3,
     WORLD_SCREENS = WORLD_COLUMNS * WORLD_ROWS,
@@ -29,12 +29,20 @@ enum
     VIEW_FARM = 0,
     VIEW_TOWN = 1,
     VIEW_ROADS = 2,
+    VIEW_SHOP = 3,
     // Farm tile (row 2, last column) of the home screen that is the road out.
     HOME_EXIT_ROW = 3,
+    // The farmhouse covers these tiles at the top of the home field.
+    HOUSE_FIRST_COLUMN = 3,
+    HOUSE_COLUMNS = 2,
+    HOUSE_ROWS = 3,
+    // The shipping bin stands beside the house; it is solid and not farmable.
+    BIN_COLUMN = 5,
+    BIN_ROW = 2,
+    BIN_TILE = BIN_ROW * FIELD_COLUMNS + BIN_COLUMN,
     HOME_EXIT_TILE = HOME_EXIT_ROW * FIELD_COLUMNS + FIELD_COLUMNS - 1,
     TOWN_STORE = 0,
-    TOWN_BOARD = 1,
-    TOWN_FARM_GATE = 2
+    TOWN_BOARD = 1
 };
 
 enum
@@ -89,6 +97,9 @@ typedef struct
     u8 screen;
     u8 reserved;
     FarmTile farm[WORLD_SCREENS][FIELD_ROWS][FIELD_COLUMNS];
+    // Crops waiting in the shipping bin, per crop; sold when the player sleeps.
+    // Added in save version 8 and kept at the end so version 7 files still load.
+    u8 bin[16];
 } SaveData;
 
 typedef struct
@@ -97,7 +108,7 @@ typedef struct
     const char *seasonName;
     unsigned daysToGrow;
     unsigned season;
-    unsigned seedPackPrice;
+    unsigned seedPrice;
     unsigned shipPrice;
     u16 color;
 } CropInfo;
@@ -110,7 +121,6 @@ extern SaveData game;
 #define CURRENT_FARM (game.farm[game.screen])
 #define CURRENT_TREES (game.treeMask[game.screen])
 extern int view;
-extern int townReturnView;
 extern int focus;
 extern int townFocus;
 extern int selectedSlot;
@@ -120,9 +130,36 @@ extern char message[48];
 unsigned gameEnergyLimit(void);
 unsigned gameCurrentSeason(void);
 bool gameIsRaining(void);
+static inline bool gameIsHouseTile(int screen, int column, int row)
+{
+    return screen == HOME_SCREEN && row >= 0 && row < HOUSE_ROWS &&
+           column >= HOUSE_FIRST_COLUMN &&
+           column < HOUSE_FIRST_COLUMN + HOUSE_COLUMNS;
+}
+
+/* The house plus a one-tile border around it; not farmable. */
+static inline bool gameIsHouseSurroundTile(int screen, int column, int row)
+{
+    return screen == HOME_SCREEN && row >= 0 && row <= HOUSE_ROWS &&
+           column >= HOUSE_FIRST_COLUMN - 1 &&
+           column <= HOUSE_FIRST_COLUMN + HOUSE_COLUMNS;
+}
+
+/* The dirt path from the farmhouse door east to the road out; not farmable. */
+static inline bool gameIsPathTile(int screen, int column, int row)
+{
+    return screen == HOME_SCREEN && row == HOME_EXIT_ROW &&
+           column >= HOUSE_FIRST_COLUMN;
+}
+
+static inline bool gameIsBinTile(int screen, int column, int row)
+{
+    return screen == HOME_SCREEN && column == BIN_COLUMN && row == BIN_ROW;
+}
+
 static inline bool gameViewWalkable(void)
 {
-    return view == VIEW_FARM || view == VIEW_ROADS;
+    return view == VIEW_FARM || view == VIEW_ROADS || view == VIEW_TOWN;
 }
 
 void gameNew(void);
@@ -137,8 +174,8 @@ void gameWaterTile(void);
 void gameSleepUntilMorning(void);
 void gameCycleInventory(int direction);
 void gameCycleShopCrop(int direction);
-void gameMoveTownFocus(int direction);
 void gameInteractTown(void);
+unsigned gameBinCount(void);
 unsigned gameInventoryCount(unsigned itemId);
 void gameEnsureSeasonalShopOffer(void);
 

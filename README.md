@@ -16,15 +16,19 @@ existing title, however it is heavly inspired by Stardew Valley by Concerned Ape
 - A fenced crossroads east of the starting field, with trees and bushes, that
   leads to the town (the mines to the north and the beach to the south are
   closed for now)
+- A farmhouse at the top of the starting field: walk into its door to wind
+  down the day, which fades to a night card, saves, and starts the next morning
+  in front of the house
 - Walking farmer with four-direction walk animations; axe, hoe, and watering
   can with full-body swing animations in every direction
 - Grass, tilled soil, crop growth stages, and trees to chop
 - Nine seasonal crops across a 28-day calendar for each of four seasons, plus
   rain
 - Nine-slot item bar and a 27-slot bag with drag-and-drop on the touch screen
-- Town with a seasonal seed shop and a restoration fund (energy and shipping
-  price upgrades)
-- Harvest and overnight shipping loop
+- A walkable town east of the crossroads: walk into the general store (seasonal
+  seeds) or the carpenter's workshop (energy and shipping price upgrades)
+- Harvest loop with a shipping bin beside the farmhouse: crops you put in the
+  bin are sold when you sleep; everything else is kept
 - Bottom-screen touch UI with info, controls, and settings panels
 - Optional tile highlighter (on by default, toggle in settings)
 - Streamed music: a dedicated menu theme and a looping in-game playlist
@@ -39,11 +43,10 @@ Farm and crossroads:
 | Input | Action |
 | --- | --- |
 | D-pad | Walk |
-| A | Interact with the targeted tile (plant seeds, harvest) |
+| A | Interact with the targeted tile (plant seeds, harvest, ship the selected crops in the bin) |
 | B | Use the selected tool |
-| Y | Sleep, ship produce, start a new day |
+| Y | Go to bed: ship produce and start a new day (walking into the farmhouse door does the same) |
 | L / R | Select inventory slot |
-| START | Visit town (walking east from the crossroads also leads there) |
 | Touch | Select item-bar slots, open `BAG`, `INFO`, `CONTROLS`, `SETTINGS`; drag items between slots |
 
 Title menu:
@@ -54,14 +57,15 @@ Title menu:
 | Touch | Tap a button |
 | B | Cancel the New Game confirmation |
 
-Town:
+Town streets: walk with the D-pad (the road west leads back to the crossroads) and walk into a shop door to go in.
+
+Inside a shop:
 
 | Input | Action |
 | --- | --- |
-| D-pad | Choose shop, restoration board, or town gate |
-| A | Buy seeds, invest in an upgrade, or leave town |
-| L / R | Choose a seed offer |
-| B / START | Leave town (back to where you came from) |
+| A | Buy seeds or invest in an upgrade |
+| D-pad / L / R | Choose a seed offer (general store) |
+| B / START | Leave the shop |
 
 ## Build
 
@@ -87,6 +91,7 @@ it in an emulator. Saves are written to `lynxibear.sav`.
 ## Credits
 
 - Game by **lairLynx Studios**.
+- Town buildings: adapted from the "PicoVillage TileSet" by Zealxy (itch.io, paid pack; modification and commercial use allowed, redistribution of the assets is not, so the original pack is not in this repository).
 - Art: **Assets from Sprout Lands by Cup Nooble** (free Basic packs),
   adapted for this project:
   - [Sprout Lands - Asset Pack](https://cupnooble.itch.io/sprout-lands-asset-pack)
@@ -95,6 +100,8 @@ it in an emulator. Saves are written to `lynxibear.sav`.
   The packs permit modification and non-commercial use only; commercial use,
   NFT-related use, and AI training are prohibited. The original asset packs
   are not included in this repository and must not be redistributed.
+- Farmhouse: "Mini Farm Asset Pack - 16x16 Pixel Art" by Jofra (CC0).
+- Shipping bin crate: "Adventure Awaits Asset Pack" by Ishtar Pixels (CC0).
 - Source code is released under the [MIT License](LICENSE). The MIT license
   does not cover the Sprout Lands art, which stays under its creator's terms.
 - Music (CC0, from OpenGameArt.org): "Apple Cider" and "Hush Hamlet" by Zane Little Music,

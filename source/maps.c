@@ -285,13 +285,56 @@ static void drawPathArea(int x, int y, int width, int height)
     }
 }
 
+// The farmhouse sits over the top of the home field. Its 80x80 sprite (Mini
+// Farm house, stage 1) is bottom-aligned with the lower edge of the house
+// tiles and centred on them.
+static void drawHouse(void)
+{
+    if (game.screen != HOME_SCREEN)
+        return;
+
+    int x = FIELD_LEFT + (HOUSE_FIRST_COLUMN + HOUSE_COLUMNS / 2) * TILE_SIZE - 40;
+    int y = FIELD_TOP + HOUSE_ROWS * TILE_SIZE - 80;
+    if (!intersectsClip(x, y, 80, 80))
+        return;
+
+    for (int row = 0; row < 80; row++)
+    {
+        for (int column = 0; column < 80; column++)
+        {
+            int tile = (row / 8) * 10 + column / 8;
+            int pixel = tile * 64 + (row % 8) * 8 + column % 8;
+            u8 packed = sproutHouseSprite[pixel / 2];
+            unsigned index = pixel & 1 ? packed >> 4 : packed & 0x0F;
+            if (index != 0)
+                putPixel(x + column, y + row, sproutHousePalette[index]);
+        }
+    }
+}
+
+// The shipping bin: a wooden crate (CC0, Adventure Awaits by Ishtar Pixels)
+// beside the farmhouse.
+static void drawBin(void)
+{
+    if (game.screen != HOME_SCREEN)
+        return;
+
+    int x = FIELD_LEFT + BIN_COLUMN * TILE_SIZE;
+    int y = FIELD_TOP + BIN_ROW * TILE_SIZE;
+    if (!intersectsClip(x, y, TILE_SIZE, TILE_SIZE))
+        return;
+
+    drawPackedTile(sproutBinSprite, sproutBinPalette, x + 6, y + 8, 5);
+}
+
 // The road out of the home field: a path through the right-hand fence.
 static void drawHomeExit(void)
 {
     if (game.screen != HOME_SCREEN)
         return;
 
-    int x = FIELD_LEFT + (FIELD_COLUMNS - 1) * TILE_SIZE;
+    // The path starts at the farmhouse door and runs east to the road out.
+    int x = FIELD_LEFT + HOUSE_FIRST_COLUMN * TILE_SIZE;
     int y = FIELD_TOP + HOME_EXIT_ROW * TILE_SIZE;
     drawPathArea(x, y, SCREEN_WIDTH - x, TILE_SIZE - 1);
     for (int fenceY = 40; fenceY <= 72; fenceY += 16)
@@ -308,6 +351,8 @@ static void drawFarmClipped(void)
         drawFarmTile(tile);
     for (int tile = 0; tile < FARM_TILE_COUNT; tile++)
         drawFarmTree(tile);
+    drawBin();
+    drawHouse();
     drawHomeExit();
 }
 
@@ -340,43 +385,186 @@ static void drawFarm(void)
     }
     resetClip();
 }
-static void drawTown(void)
+// Walkable town: a dirt road along the bottom with three PicoVillage buildings
+// above it, all standing on the same baseline. The cabin is the general store,
+// the grey workshop the carpenter, and the blue fish shop is closed for now.
+// Doors face the road.
+enum
 {
-    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR(15, 23, 30));
-    fillRect(0, 37, SCREEN_WIDTH, 139, COLOR(8, 18, 10));
-    fillRect(0, 91, SCREEN_WIDTH, 31, COLOR(21, 16, 10));
-    fillRect(0, 104, SCREEN_WIDTH, 5, COLOR(25, 19, 11));
-    fillRect(0, 178, SCREEN_WIDTH, 14, COLOR(6, 15, 8));
+    TOWN_BASELINE = 121,
+    TOWN_ROAD_Y = 128,
+    TOWN_ROAD_H = 32
+};
 
-    fillRect(17, 55, 64, 31, COLOR(18, 12, 9));
-    fillRect(23, 44, 52, 13, COLOR(25, 8, 7));
-    fillRect(28, 61, 13, 25, COLOR(25, 20, 12));
-    fillRect(51, 62, 22, 13, COLOR(8, 20, 23));
-    fillRect(95, 52, 65, 34, COLOR(17, 13, 9));
-    fillRect(91, 42, 73, 12, COLOR(24, 19, 11));
-    fillRect(105, 64, 8, 22, COLOR(12, 24, 14));
-    fillRect(125, 63, 27, 14, COLOR(8, 18, 20));
-    fillRect(181, 59, 53, 27, COLOR(14, 11, 9));
-    fillRect(176, 50, 63, 10, COLOR(23, 18, 11));
-    fillRect(188, 64, 12, 17, COLOR(27, 24, 16));
-    fillRect(207, 66, 19, 15, COLOR(9, 18, 22));
+typedef struct
+{
+    const u8 *pixels;
+    const u16 *palette;
+    short x;
+    short width;
+    short height;
+    short doorX;       // door centre, relative to x
+    signed char shop;  // TOWN_STORE, TOWN_BOARD, or -1 when it does not open
+} TownBuilding;
 
-    u16 outline = COLOR(31, 27, 13);
-    if (townFocus == TOWN_STORE)
-        drawRect(14, 41, 69, 48, outline);
-    else if (townFocus == TOWN_BOARD)
-        drawRect(88, 39, 80, 52, outline);
-    else
-        drawRect(173, 46, 69, 46, outline);
+static const TownBuilding townBuildings[TOWN_BUILDING_COUNT] = {
+    {sproutTownBuilding0, sproutTownBuildingPalette0, 14, 64, 76, 32, TOWN_STORE},
+    {sproutTownBuilding1, sproutTownBuildingPalette1, 98, 66, 42, 37, TOWN_BOARD},
+    {sproutTownBuilding2, sproutTownBuildingPalette2, 180, 72, 73, 25, -1},
+};
+static const short townTrees[][2] = {{6, 156}, {92, 160}, {160, 158}, {222, 156}};
 
-    fillRect(102, 129, 52, 35, COLOR(21, 15, 9));
-    fillRect(110, 121, 35, 10, COLOR(26, 20, 11));
-    fillRect(124, 142, 10, 22, COLOR(9, 20, 12));
-    fillRect(27, 96, 2, 2, COLOR(31, 26, 17));
-    fillRect(221, 97, 2, 2, COLOR(31, 26, 17));
-    fillRect(0, 188, SCREEN_WIDTH, 4, COLOR(20, 25, 17));
+int mapsTownBuildingAt(int left, int top, int right, int bottom)
+{
+    for (int i = 0; i < TOWN_BUILDING_COUNT; i++)
+    {
+        const TownBuilding *b = &townBuildings[i];
+        if (right >= b->x && left < b->x + b->width &&
+            bottom >= TOWN_BASELINE - b->height && top < TOWN_BASELINE)
+            return i;
+    }
+    return -1;
 }
 
+int mapsTownBuildingShop(int building)
+{
+    return townBuildings[building].shop;
+}
+
+int mapsTownBuildingDoorX(int building)
+{
+    return townBuildings[building].x + townBuildings[building].doorX;
+}
+
+int mapsTownDoorFrontY(void)
+{
+    return TOWN_BASELINE;
+}
+
+// Only the trunk of a town tree blocks the way.
+bool mapsTownTreeSolid(int left, int top, int right, int bottom)
+{
+    for (unsigned i = 0; i < sizeof(townTrees) / sizeof(townTrees[0]); i++)
+    {
+        if (right >= townTrees[i][0] + 10 && left < townTrees[i][0] + 22 &&
+            bottom >= townTrees[i][1] + 20 && top < townTrees[i][1] + 30)
+            return true;
+    }
+    return false;
+}
+
+// Buildings are 8bpp (index 0 is transparent), stored row by row.
+static void drawTownBuilding(const TownBuilding *building)
+{
+    int x = building->x;
+    int y = TOWN_BASELINE - building->height;
+    if (!intersectsClip(x, y, building->width, building->height))
+        return;
+
+    for (int row = 0; row < building->height; row++)
+    {
+        for (int column = 0; column < building->width; column++)
+        {
+            unsigned index = building->pixels[row * building->width + column];
+            if (index != 0)
+                putPixel(x + column, y + row, building->palette[index]);
+        }
+    }
+}
+
+static void drawTown(void)
+{
+    drawGrassMeadow();
+    drawPathArea(0, TOWN_ROAD_Y, SCREEN_WIDTH, TOWN_ROAD_H);
+    for (int i = 0; i < TOWN_BUILDING_COUNT; i++)
+    {
+        int doorX = townBuildings[i].x + townBuildings[i].doorX;
+        drawPathArea(doorX - 8, TOWN_BASELINE, 16, TOWN_ROAD_Y - TOWN_BASELINE);
+        drawTownBuilding(&townBuildings[i]);
+    }
+    for (unsigned i = 0; i < sizeof(townTrees) / sizeof(townTrees[0]); i++)
+        drawTree(townTrees[i][0], townTrees[i][1]);
+}
+// Shop interiors are drawn on the top screen while the shop menu is open.
+static void drawCropIcon(unsigned crop, int x, int y)
+{
+    for (int row = 0; row < 12; row++)
+    {
+        for (int column = 0; column < 12; column++)
+        {
+            unsigned index = packedTilePixel(sproutCropIcons[crop], column, row);
+            if (index != 0)
+                putPixel(x + column, y + row, sproutCropPalettes[crop][index]);
+        }
+    }
+}
+
+static void drawShop(int shop)
+{
+    static const u16 wall = COLOR(20, 13, 8);
+    static const u16 wallLine = COLOR(16, 10, 6);
+    static const u16 floorColor = COLOR(25, 19, 13);
+    static const u16 floorLine = COLOR(21, 15, 10);
+    static const u16 counterTop = COLOR(27, 21, 13);
+    static const u16 counterFront = COLOR(16, 10, 6);
+    static const u16 selectColor = COLOR(31, 28, 8);
+
+    fillRect(0, 0, SCREEN_WIDTH, 100, wall);
+    for (int y = 6; y < 100; y += 12)
+        fillRect(0, y, SCREEN_WIDTH, 1, wallLine);
+    fillRect(0, 100, SCREEN_WIDTH, SCREEN_HEIGHT - 100, floorColor);
+    for (int y = 112; y < SCREEN_HEIGHT; y += 16)
+        fillRect(0, y, SCREEN_WIDTH, 1, floorLine);
+    fillRect(0, 98, SCREEN_WIDTH, 3, counterFront);
+
+    // Shelves.
+    for (int shelf = 0; shelf < 2; shelf++)
+    {
+        int y = 32 + shelf * 36;
+        fillRect(20, y + 17, 216, 3, counterFront);
+        fillRect(20, y + 20, 216, 1, wallLine);
+    }
+
+    if (shop == TOWN_STORE)
+    {
+        // Seed stock: the crops in season sit on the top shelf, centred, with
+        // the current offer outlined.
+        int stocked[CROP_COUNT];
+        int count = 0;
+        for (int crop = 0; crop < CROP_COUNT; crop++)
+        {
+            if (crops[crop].season == gameCurrentSeason())
+                stocked[count++] = crop;
+        }
+        for (int i = 0; i < count; i++)
+        {
+            int x = SCREEN_WIDTH / 2 - 6 + (2 * i - count + 1) * 24;
+            if (stocked[i] == selectedShopCrop)
+                drawRect(x - 5, 31, 22, 22, selectColor);
+            drawCropIcon((unsigned)stocked[i], x, 36);
+        }
+    }
+    else
+    {
+        // Tools on the top shelf, and a slot per upgrade below.
+        for (int tool = 0; tool < 4; tool++)
+            drawPackedTile(sproutUtilityIcons[tool], sproutUtilityPalette,
+                           72 + tool * 32, 34, 5);
+        for (int upgrade = 0; upgrade < 2; upgrade++)
+        {
+            int x = 96 + upgrade * 40;
+            drawRect(x, 68, 24, 24, counterFront);
+            fillRect(x + 1, 69, 22, 22, (unsigned)upgrade < game.repairs ?
+                     selectColor : COLOR(23, 17, 11));
+        }
+    }
+
+    // Counter and doormat.
+    fillRect(40, 124, 176, 6, counterTop);
+    fillRect(40, 130, 176, 22, counterFront);
+    fillRect(40, 130, 176, 2, COLOR(12, 7, 4));
+    fillRect(108, 168, 40, 12, COLOR(14, 9, 7));
+}
 // Crossroads: a 16x12 grid of 16 px cells. A horizontal road (rows 5-6) is
 // crossed by a vertical road (columns 7-8), both fenced, with trees and
 // bushes in the four corners outside the fences.
@@ -463,6 +651,18 @@ u16 *mapsBitmap(void)
     return frameBuffer;
 }
 
+void mapsInvalidate(void)
+{
+    farmDrawn = false;
+}
+
+void mapsFillBlack(void)
+{
+    resetClip();
+    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR(0, 0, 0));
+    farmDrawn = false;
+}
+
 static void drawScaledSprite(const u8 *sprite, const u16 *palette,
                              int x, int y, int scale)
 {
@@ -495,6 +695,11 @@ void mapsDraw(int mapId)
     if (mapId == VIEW_TOWN)
     {
         drawTown();
+        farmDrawn = false;
+    }
+    else if (mapId == VIEW_SHOP)
+    {
+        drawShop(townFocus);
         farmDrawn = false;
     }
     else if (mapId == VIEW_ROADS)

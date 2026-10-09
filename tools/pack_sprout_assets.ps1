@@ -8,6 +8,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $incoming = Join-Path $root "assets\incoming"
 $spriteZipPath = Join-Path $incoming "Sprout Lands - Sprites - Basic pack.zip"
 $uiZipPath = Join-Path $incoming "Sprout Lands - UI Pack - Basic pack.zip"
+$adventureZipPath = Join-Path $incoming "adventure_awaits_asset_pack_1.0.zip"
+$miniFarmZipPath = Join-Path $incoming "Mini Farm Asset Pack - 16x16 Pixel Art.zip"
+$picoZipPath = Join-Path $incoming "PicoVIllage TileSet.zip"
 $sourceDir = Join-Path $root "source"
 
 function Open-ZipImage {
@@ -166,6 +169,20 @@ function Convert-FramesTo4Bpp {
     return [pscustomobject]@{ Frames = $packedFrames.ToArray(); Palette = $palette }
 }
 
+# Copies a rectangle of one image over a BGRA canvas, skipping transparent pixels.
+function Copy-Over {
+    param([byte[]]$Canvas, [int]$CanvasWidth, [pscustomobject]$Image, [int]$X, [int]$Y, [int]$Width, [int]$Height, [int]$DestX, [int]$DestY)
+
+    for ($row = 0; $row -lt $Height; $row++) {
+        for ($column = 0; $column -lt $Width; $column++) {
+            $source = (($Y + $row) * $Image.Width + $X + $column) * 4
+            if ($Image.Pixels[$source + 3] -lt 128) { continue }
+            $target = (($DestY + $row) * $CanvasWidth + $DestX + $column) * 4
+            [Array]::Copy($Image.Pixels, $source, $Canvas, $target, 4)
+        }
+    }
+}
+
 function Get-PaddedPlayerFrame {
     param([pscustomobject]$Image, [int]$X, [int]$Y)
 
@@ -201,19 +218,83 @@ function Write-Palette {
     [void]$Builder.AppendLine()
 }
 
-if (-not (Test-Path -LiteralPath $spriteZipPath) -or -not (Test-Path -LiteralPath $uiZipPath)) {
-    throw "Place both free Sprout Lands Basic ZIPs in assets\incoming before running this script."
+# Packs one BGRA frame as 8bpp: index 0 is transparent, up to 255 colours (the
+# most used; any others map to the nearest). Rows are stored top to bottom.
+function Convert-FrameTo8Bpp {
+    param([byte[]]$Frame, [int]$PixelCount)
+
+    $histogram = @{}
+    for ($offset = 0; $offset -lt $Frame.Length; $offset += 4) {
+        if ($Frame[$offset + 3] -lt 128) { continue }
+        $key = "{0:X2}{1:X2}{2:X2}" -f $Frame[$offset + 2], $Frame[$offset + 1], $Frame[$offset]
+        if ($histogram.ContainsKey($key)) { $histogram[$key]++ } else { $histogram[$key] = 1 }
+    }
+
+    $colors = @($histogram.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 255)
+    $palette = [int[]]::new(256)
+    $colorIndexes = @{}
+    for ($i = 0; $i -lt $colors.Count; $i++) {
+        $rgb = [Convert]::ToInt32($colors[$i].Key, 16)
+        $red = ($rgb -shr 16) -band 0xFF
+        $green = ($rgb -shr 8) -band 0xFF
+        $blue = $rgb -band 0xFF
+        $palette[$i + 1] = 0x8000 -bor (($red -shr 3) -bor (($green -shr 3) -shl 5) -bor (($blue -shr 3) -shl 10))
+        $colorIndexes[$colors[$i].Key] = $i + 1
+    }
+
+    $data = [byte[]]::new($PixelCount)
+    for ($pixel = 0; $pixel -lt $PixelCount; $pixel++) {
+        $offset = $pixel * 4
+        if ($Frame[$offset + 3] -lt 128) { continue }
+        $key = "{0:X2}{1:X2}{2:X2}" -f $Frame[$offset + 2], $Frame[$offset + 1], $Frame[$offset]
+        if ($colorIndexes.ContainsKey($key)) {
+            $data[$pixel] = [byte]$colorIndexes[$key]
+            continue
+        }
+        $bestDistance = [int]::MaxValue
+        $best = 1
+        for ($colorIndex = 1; $colorIndex -le $colors.Count; $colorIndex++) {
+            $candidate = [Convert]::ToInt32($colors[$colorIndex - 1].Key, 16)
+            $dr = [int]$Frame[$offset + 2] - (($candidate -shr 16) -band 0xFF)
+            $dg = [int]$Frame[$offset + 1] - (($candidate -shr 8) -band 0xFF)
+            $db = [int]$Frame[$offset] - ($candidate -band 0xFF)
+            $distance = $dr * $dr + $dg * $dg + $db * $db
+            if ($distance -lt $bestDistance) { $bestDistance = $distance; $best = $colorIndex }
+        }
+        $data[$pixel] = [byte]$best
+    }
+    return [pscustomobject]@{ Data = $data; Palette = $palette }
+}
+
+function Write-Palette256 {
+    param([System.Text.StringBuilder]$Builder, [string]$Name, [int[]]$Values)
+    [void]$Builder.AppendLine("const u16 $Name[256] = {")
+    for ($i = 0; $i -lt 256; $i += 8) {
+        $row = for ($j = $i; $j -lt $i + 8; $j++) { "0x{0:X4}" -f $Values[$j] }
+        [void]$Builder.AppendLine("    " + ($row -join ", ") + ",")
+    }
+    [void]$Builder.AppendLine("};")
+    [void]$Builder.AppendLine()
+}
+if (-not (Test-Path -LiteralPath $spriteZipPath) -or -not (Test-Path -LiteralPath $uiZipPath) -or -not (Test-Path -LiteralPath $adventureZipPath) -or -not (Test-Path -LiteralPath $miniFarmZipPath) -or -not (Test-Path -LiteralPath $picoZipPath)) {
+    throw "Place both free Sprout Lands Basic ZIPs and the CC0 Adventure Awaits and Mini Farm ZIPs and the PicoVillage ZIP in assets\incoming before running this script."
 }
 
 $spriteArchive = [System.IO.Compression.ZipFile]::OpenRead($spriteZipPath)
 $uiArchive = [System.IO.Compression.ZipFile]::OpenRead($uiZipPath)
+$adventureArchive = [System.IO.Compression.ZipFile]::OpenRead($adventureZipPath)
+$miniFarmArchive = [System.IO.Compression.ZipFile]::OpenRead($miniFarmZipPath)
+$picoArchive = [System.IO.Compression.ZipFile]::OpenRead($picoZipPath)
 try {
     $playerSheet = Open-ZipImage $spriteArchive "Characters/Basic Charakter Spritesheet.png"
     $actionSheet = Open-ZipImage $spriteArchive "Characters/Basic Charakter Actions.png"
     $plantSheet = Open-ZipImage $spriteArchive "Objects/Basic Plants.png"
     $utilitySheet = Open-ZipImage $spriteArchive "Objects/Basic tools and meterials.png"
     $environmentSheet = Open-ZipImage $spriteArchive "Objects/Basic Grass Biom things 1.png"
+    $adventureSheet = Open-ZipImage $adventureArchive "Adventure Awaits Asset Pack 1.0.png"
     $fenceSheet = Open-ZipImage $spriteArchive "Tilesets/Fences.png"
+    $miniFarmHouses = Open-ZipImage $miniFarmArchive "houses_furnitures.png"
+    $picoSheet = Open-ZipImage $picoArchive "BuildingsTileSet.png"
     $grassTilesSheet = Open-ZipImage $spriteArchive "Tilesets/Grass.png"
     $soilTilesSheet = Open-ZipImage $spriteArchive "Tilesets/Tilled Dirt.png"
     $emojiSheet = Open-ZipImage $uiArchive "emojis-free/Emoji_Spritesheet_Free.png"
@@ -282,6 +363,36 @@ try {
     $bushFrames[0] = Get-RegionPixels $environmentSheet 16 48 16 16
     $bushFrames[1] = Get-RegionPixels $environmentSheet 0 48 16 16
     $bushAssets = Convert-FramesTo4Bpp $bushFrames
+
+    # Shipping bin: the wooden crate from the CC0 Adventure Awaits pack (16x16 at 64,288).
+    # Sprout Lands' Chest.png is kept free for a future chest item.
+    $binFrames = [byte[][]]::new(1)
+    $binFrames[0] = Get-RegionPixels $adventureSheet 64 288 16 16
+    $binAssets = Convert-FramesTo4Bpp $binFrames
+
+    # Farmhouse: stage 1 of the CC0 Mini Farm house (66x80 at 7,16 in
+    # houses_furnitures.png), centred in an 80x80 frame. Its door is centred.
+    # Stages 2 and 3 of the same sheet can be packed the same way for upgrades.
+    $houseCanvas = [byte[]]::new(80 * 80 * 4)
+    Copy-Over $houseCanvas 80 $miniFarmHouses 7 16 66 80 7 0
+    $houseFrames = [byte[][]]::new(1)
+    $houseFrames[0] = $houseCanvas
+    $houseAssets = Convert-FramesTo4Bpp $houseFrames
+
+    # Town buildings from PicoVillage (a paid pack: do not redistribute the
+    # sheet). Three of its buildings, halved to suit the 24 px farmer: a red-roofed
+    # cabin (general store), the grey workshop (carpenter) and the blue fish shop
+    # (closed for now). They have 22-43 colours each, so they are stored as 8bpp.
+    $picoBuildings = @(
+        @(8, 6, 128, 152, 64, 76),
+        @(352, 44, 132, 84, 66, 42),
+        @(496, 14, 144, 146, 72, 73)
+    )
+    $townBuildingAssets = [System.Collections.Generic.List[object]]::new()
+    foreach ($pico in $picoBuildings) {
+        $frame = Get-RegionPixels $picoSheet $pico[0] $pico[1] $pico[2] $pico[3] $pico[4] $pico[5]
+        $townBuildingAssets.Add((Convert-FrameTo8Bpp $frame ($pico[4] * $pico[5])))
+    }
 
     $treeFrames = [byte[][]]::new(1)
     $treeFrames[0] = Get-RegionPixels $environmentSheet 16 0 32 32 32 32
@@ -362,6 +473,10 @@ try {
         $treeAssets.Frames[0].Length -ne 512 -or
         @($buttonAssets.Frames | Where-Object { $_.Length -ne 512 }).Count -ne 0 -or
         @($fenceAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
+        $houseAssets.Frames[0].Length -ne 3200 -or
+        $townBuildingAssets[0].Data.Length -ne 4864 -or $townBuildingAssets[1].Data.Length -ne 2772 -or
+        $townBuildingAssets[2].Data.Length -ne 5256 -or
+        $binAssets.Frames[0].Length -ne 128 -or
         @($bushAssets.Frames | Where-Object { $_.Length -ne 128 }).Count -ne 0 -or
         $seedAssets.Frames[0].Length -ne 128 -or
         $settingsIconAssets.Frames[0].Length -ne 128 -or
@@ -391,6 +506,16 @@ extern const u8 sproutFenceTiles[6][128];
 extern const u16 sproutFencePalette[16];
 extern const u8 sproutBushTiles[2][128];
 extern const u16 sproutBushPalette[16];
+extern const u8 sproutBinSprite[128];
+extern const u16 sproutBinPalette[16];
+extern const u8 sproutTownBuilding0[4864];
+extern const u16 sproutTownBuildingPalette0[256];
+extern const u8 sproutTownBuilding1[2772];
+extern const u16 sproutTownBuildingPalette1[256];
+extern const u8 sproutTownBuilding2[5256];
+extern const u16 sproutTownBuildingPalette2[256];
+extern const u8 sproutHouseSprite[3200];
+extern const u16 sproutHousePalette[16];
 extern const u8 sproutTreeSprite[512];
 extern const u16 sproutTreePalette[16];
 extern const u8 sproutSeedIcon[128];
@@ -466,6 +591,22 @@ extern const u16 sproutGrowthPalette[16];
     [void]$builder.AppendLine("};")
     [void]$builder.AppendLine()
     Write-Palette $builder "sproutBushPalette" $bushAssets.Palette
+    Write-ByteArray $builder "sproutBinSprite" $binAssets.Frames[0]
+    Write-Palette $builder "sproutBinPalette" $binAssets.Palette
+    foreach ($i in 0..2) {
+        $values = $townBuildingAssets[$i].Data
+        [void]$builder.AppendLine("const u8 sproutTownBuilding$i[$($values.Length)] = {")
+        for ($j = 0; $j -lt $values.Length; $j += 24) {
+            $end = [Math]::Min($j + 23, $values.Length - 1)
+            $row = for ($k = $j; $k -le $end; $k++) { "0x{0:X2}" -f $values[$k] }
+            [void]$builder.AppendLine("    " + ($row -join ", ") + ",")
+        }
+        [void]$builder.AppendLine("};")
+        [void]$builder.AppendLine()
+        Write-Palette256 $builder "sproutTownBuildingPalette$i" $townBuildingAssets[$i].Palette
+    }
+    Write-ByteArray $builder "sproutHouseSprite" $houseAssets.Frames[0]
+    Write-Palette $builder "sproutHousePalette" $houseAssets.Palette
     Write-ByteArray $builder "sproutTreeSprite" $treeAssets.Frames[0]
     Write-Palette $builder "sproutTreePalette" $treeAssets.Palette
     Write-ByteArray $builder "sproutSeedIcon" $seedAssets.Frames[0]
@@ -526,6 +667,9 @@ extern const u16 sproutGrowthPalette[16];
 finally {
     $spriteArchive.Dispose()
     $uiArchive.Dispose()
+    $adventureArchive.Dispose()
+    $miniFarmArchive.Dispose()
+    $picoArchive.Dispose()
 }
 
 Write-Output "Generated source/sprout_assets.c and source/sprout_assets.h."

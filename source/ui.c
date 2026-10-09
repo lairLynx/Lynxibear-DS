@@ -250,6 +250,8 @@ static void drawHeader(void)
     char line[48];
     if (view == VIEW_ROADS)
         drawText(12, 9, "THE CROSSROADS", paletteGreen);
+    else if (view == VIEW_TOWN || view == VIEW_SHOP)
+        drawText(12, 9, "LYNXIBEAR VALLEY", paletteGreen);
     else if (game.screen == HOME_SCREEN)
         drawText(12, 9, "LYNXIBEAR FARM", paletteGreen);
     else
@@ -279,6 +281,12 @@ static void drawActivityPage(void)
         drawText(12, 52, "WEST: THE FARM  EAST: THE TOWN", paletteInk);
         drawText(12, 64, "NORTH: MINES, SOUTH: BEACH (CLOSED)", paletteMuted);
     }
+    else if (view == VIEW_TOWN)
+    {
+        drawText(12, 39, "LYNXIBEAR VALLEY", paletteGreen);
+        drawText(12, 52, "WALK INTO A DOOR TO SHOP", paletteInk);
+        drawText(12, 64, "WEST: THE CROSSROADS", paletteMuted);
+    }
     else if (view == VIEW_FARM)
     {
         drawText(12, 39, "FARM ACTIVITY", paletteGreen);
@@ -288,8 +296,7 @@ static void drawActivityPage(void)
     else
     {
         drawText(12, 39, "LYNXIBEAR VALLEY", paletteGreen);
-        drawText(12, 52, townFocus == TOWN_STORE ? "GENERAL STORE" :
-                 townFocus == TOWN_BOARD ? "VALLEY BOARD" : "TOWN GATE",
+        drawText(12, 52, townFocus == TOWN_STORE ? "GENERAL STORE" : "CARPENTER",
                  paletteInk);
         if (townFocus == TOWN_STORE)
         {
@@ -298,12 +305,12 @@ static void drawActivityPage(void)
             snprintf(line, sizeof(line), "%s STOCK: %s",
                      seasonNames[gameCurrentSeason()], crop->name);
             drawText(12, 64, line, paletteInk);
-            snprintf(line, sizeof(line), "3 SEEDS - %u GOLD",
-                     crop->seedPackPrice);
+            snprintf(line, sizeof(line), "1 SEED - %u GOLD",
+                     crop->seedPrice);
             drawText(12, 76, line, paletteInk);
             drawText(12, 88, "L/R CHANGES SEASONAL STOCK", paletteMuted);
         }
-        else if (townFocus == TOWN_BOARD)
+        else
         {
             snprintf(line, sizeof(line), "UPGRADE %lu OF 2",
                      (unsigned long)(game.repairs + 1));
@@ -312,8 +319,6 @@ static void drawActivityPage(void)
                      "INVESTMENT: 250 GOLD" : "INVESTMENT: 650 GOLD",
                      paletteInk);
         }
-        else
-            drawText(12, 64, "PRESS A TO LEAVE TOWN", paletteInk);
     }
 
     drawText(12, 82, "LATEST", paletteGreen);
@@ -345,22 +350,20 @@ static void drawInfoPage(void)
 static void drawControlsPage(void)
 {
     drawText(12, 39, "CONTROLS", paletteGreen);
-    if (view != VIEW_TOWN)
+    if (view != VIEW_SHOP)
     {
-        drawText(12, 51, "D-PAD  WALK  |  START  TOWN", paletteInk);
+        drawText(12, 51, "D-PAD  WALK  |  WALK INTO DOORS", paletteInk);
         drawText(12, 61, "A  INTERACT: PLANT OR HARVEST", paletteInk);
         drawText(12, 71, "B  USE SELECTED TOOL", paletteInk);
-        drawText(12, 81, "Y  SLEEP AND SHIP PRODUCE", paletteInk);
+        drawText(12, 81, "Y  GO TO BED (OR USE THE DOOR)", paletteInk);
         drawText(12, 91, "L/R  SELECT INVENTORY SLOT", paletteInk);
         drawText(12, 101, "BAG STORAGE  |  SETTINGS HIGHLIGHT", paletteInk);
     }
     else
     {
-        drawText(12, 51, "D-PAD  CHOOSE A LOCATION", paletteInk);
-        drawText(12, 61, "A  VISIT OR USE LOCATION", paletteInk);
-        drawText(12, 71, "B  LEAVE TOWN", paletteInk);
-        drawText(12, 81, "L/R  CHOOSE SEASONAL STOCK", paletteInk);
-        drawText(12, 91, "START  LEAVE TOWN", paletteInk);
+        drawText(12, 51, "A  BUY OR INVEST", paletteInk);
+        drawText(12, 61, "L/R  CHOOSE SEASONAL STOCK", paletteInk);
+        drawText(12, 71, "B OR START  LEAVE THE SHOP", paletteInk);
     }
 }
 
@@ -741,4 +744,22 @@ int uiMenuButtonAt(int x, int y)
             return index;
     }
     return -1;
+}
+
+void uiRenderNightCard(u16 *topBitmap)
+{
+    static const u16 night = COLOR(3, 4, 9);
+    static const u16 dim = COLOR(20, 20, 26);
+    if (uiBitmap == NULL)
+        return;
+
+    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, night);
+    drawCenteredText(uiBitmap, 88, "SWEET DREAMS", dim, 2);
+    for (int y = 0; y < SCREEN_HEIGHT; y++)
+    {
+        for (int x = 0; x < SCREEN_WIDTH; x++)
+            topBitmap[y * 256 + x] = night;
+    }
+    drawCenteredText(topBitmap, 72, "WINDING DOWN", dim, 2);
+    drawCenteredText(topBitmap, 94, "THE DAY...", dim, 2);
 }

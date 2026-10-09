@@ -11,7 +11,6 @@ const char *const seasonNames[4] = {
 
 SaveData game;
 int view = VIEW_FARM;
-int townReturnView = VIEW_FARM;
 int focus = -1;
 int townFocus = TOWN_STORE;
 int selectedSlot;
@@ -171,7 +170,6 @@ void gameNew(void)
     gameGenerateWildTrees(&game);
     game.screen = HOME_SCREEN;
     view = VIEW_FARM;
-    townReturnView = VIEW_FARM;
     focus = -1;
     townFocus = TOWN_STORE;
     selectedSlot = 1;
@@ -183,7 +181,11 @@ FarmTile *gameFocusedTile(void)
 {
     if (focus < 0 || focus >= FIELD_COLUMNS * FIELD_ROWS)
         return NULL;
-    if (game.screen == HOME_SCREEN && focus == HOME_EXIT_TILE)
+    if (game.screen == HOME_SCREEN &&
+        (focus == BIN_TILE ||
+         gameIsPathTile(game.screen, focus % FIELD_COLUMNS, focus / FIELD_COLUMNS)))
+        return NULL;
+    if (gameIsHouseSurroundTile(game.screen, focus % FIELD_COLUMNS, focus / FIELD_COLUMNS))
         return NULL;
 
     return &CURRENT_FARM[focus / FIELD_COLUMNS][focus % FIELD_COLUMNS];
@@ -236,8 +238,50 @@ void gameHoeTile(void)
     }
 }
 
+unsigned gameBinCount(void)
+{
+    unsigned total = 0;
+    for (unsigned crop = 0; crop < CROP_COUNT; crop++)
+        total += game.bin[crop];
+    return total;
+}
+
+// Moves the selected stack of produce into the shipping bin; it sells overnight.
+static void shipSelectedToBin(void)
+{
+    if (selectedSlot < 0 || selectedSlot >= INVENTORY_SLOTS ||
+        !itemIsProduce(game.inventory[selectedSlot].item))
+    {
+        snprintf(message, sizeof(message), "Select crops to ship in the bin.");
+        return;
+    }
+
+    unsigned crop = itemCropIndex(game.inventory[selectedSlot].item);
+    unsigned room = MAX_STACK - game.bin[crop];
+    unsigned count = game.inventory[selectedSlot].count;
+    if (count > room)
+        count = room;
+    if (count == 0)
+    {
+        snprintf(message, sizeof(message), "The bin is full of %s.", crops[crop].name);
+        return;
+    }
+
+    game.bin[crop] += count;
+    removeInventoryItem((unsigned)selectedSlot, count);
+    cue(SOUND_PLACE);
+    snprintf(message, sizeof(message), "Shipped %u %s. Sold when you sleep.",
+             count, crops[crop].name);
+}
+
 static void interactFarm(void)
 {
+    if (view == VIEW_FARM && game.screen == HOME_SCREEN && focus == BIN_TILE)
+    {
+        shipSelectedToBin();
+        return;
+    }
+
     FarmTile *tile = gameFocusedTile();
     if (focus >= 0 && (CURRENT_TREES & ((u64)1 << focus)) != 0)
     {
@@ -256,7 +300,7 @@ static void interactFarm(void)
         unsigned harvestedCrop = tile->crop - 1;
         if (!addInventoryItem(itemProduceId(harvestedCrop), 1))
         {
-            snprintf(message, sizeof(message), "Inventory full. Ship items or clear a slot.");
+            snprintf(message, sizeof(message), "Inventory full. Ship crops in the bin first.");
             return;
         }
 
@@ -265,7 +309,7 @@ static void interactFarm(void)
         tile->crop = CROP_EMPTY;
         tile->growth = 0;
         tile->watered = false;
-        snprintf(message, sizeof(message), "Harvested %s! Ships tonight.",
+        snprintf(message, sizeof(message), "Harvested %s! Sell it in the bin.",
                  crops[harvestedCrop].name);
         return;
     }
@@ -301,6 +345,8 @@ static void interactFarm(void)
 
 void gameInteractFarm(void)
 {
+    if (view != VIEW_FARM)
+        return;
     soundGiven = false;
     interactFarm();
     if (!soundGiven)
@@ -338,25 +384,15 @@ void gameSleepUntilMorning(void)
     unsigned shipped = 0;
     unsigned earned = 0;
 
-    InventorySlot *containers[] = {game.inventory, game.storage};
-    const unsigned slotCounts[] = {INVENTORY_SLOTS, STORAGE_SLOTS};
-    for (unsigned container = 0; container < 2; container++)
+    // Only what was put in the shipping bin is sold; other crops are kept.
+    for (unsigned crop = 0; crop < CROP_COUNT; crop++)
     {
-        for (unsigned slot = 0; slot < slotCounts[container]; slot++)
-        {
-            InventorySlot *item = &containers[container][slot];
-            if (!itemIsProduce(item->item))
-                continue;
-
-            unsigned crop = itemCropIndex(item->item);
-            unsigned price = crops[crop].shipPrice;
-            if (game.repairs >= 2)
-                price = price * 11 / 10;
-            shipped += item->count;
-            earned += item->count * price;
-            item->item = ITEM_NONE;
-            item->count = 0;
-        }
+        unsigned price = crops[crop].shipPrice;
+        if (game.repairs >= 2)
+            price = price * 11 / 10;
+        shipped += game.bin[crop];
+        earned += game.bin[crop] * price;
+        game.bin[crop] = 0;
     }
 
     if (earned > 0)
@@ -391,6 +427,8 @@ void gameSleepUntilMorning(void)
                             tile->growth++;
                     }
                 }
+                else
+                    tile->tilled = false;
 
                 tile->watered = false;
             }
@@ -519,40 +557,26 @@ void gameEnsureSeasonalShopOffer(void)
     }
 }
 
-void gameMoveTownFocus(int direction)
-{
-    townFocus = (townFocus + direction + 3) % 3;
-}
-
 void gameInteractTown(void)
 {
     soundGiven = false;
-    if (townFocus == TOWN_FARM_GATE)
-    {
-        view = townReturnView;
-        cue(SOUND_BACK);
-        snprintf(message, sizeof(message), view == VIEW_ROADS ?
-                 "Back on the crossroads." : "Back to the farm. What will you grow?");
-        return;
-    }
-
     if (townFocus == TOWN_STORE)
     {
         gameEnsureSeasonalShopOffer();
         const CropInfo *crop = &crops[selectedShopCrop];
         unsigned seedItem = itemSeedId((unsigned)selectedShopCrop);
-        if (game.gold < crop->seedPackPrice)
+        if (game.gold < crop->seedPrice)
         {
             cue(SOUND_NO_MONEY);
-            snprintf(message, sizeof(message), "Not enough gold for this seed pack.");
+            snprintf(message, sizeof(message), "Not enough gold for this seed.");
         }
-        else if (!addInventoryItem(seedItem, 3))
+        else if (!addInventoryItem(seedItem, 1))
             snprintf(message, sizeof(message), "Inventory full; make room for seeds.");
         else
         {
-            game.gold -= crop->seedPackPrice;
+            game.gold -= crop->seedPrice;
             cue(SOUND_BUY);
-            snprintf(message, sizeof(message), "Bought 3 %s seeds.", crop->name);
+            snprintf(message, sizeof(message), "Bought 1 %s seed.", crop->name);
         }
         return;
     }
@@ -571,7 +595,7 @@ void gameInteractTown(void)
         cue(SOUND_LEVEL_UP);
         game.repairs++;
         snprintf(message, sizeof(message),
-                 game.repairs == 1 ? "Board restored! Maximum energy increased."
+                 game.repairs == 1 ? "Workshop upgraded! More energy."
                                    : "Valley renewed! Shipments now earn 10%% more.");
     }
 
