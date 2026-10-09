@@ -54,16 +54,19 @@ bool menuRun(bool saveAvailable)
         if (!confirming && hasSave && (pressed & (KEY_UP | KEY_DOWN)))
         {
             selected = selected == MENU_CONTINUE ? MENU_NEW_GAME : MENU_CONTINUE;
+            audioPlaySound(SOUND_HOVER);
             redraw = true;
         }
         else if (confirming && (pressed & (KEY_UP | KEY_DOWN)))
         {
             selected = selected == 0 ? 1 : 0;
+            audioPlaySound(SOUND_HOVER);
             redraw = true;
         }
 
         if (confirming && (pressed & KEY_B))
         {
+            audioPlaySound(SOUND_BACK);
             confirming = false;
             selected = MENU_NEW_GAME;
             redraw = true;
@@ -71,6 +74,8 @@ bool menuRun(bool saveAvailable)
 
         if (!activate)
             continue;
+
+        audioPlaySound(SOUND_CONFIRM);
 
         if (confirming)
         {

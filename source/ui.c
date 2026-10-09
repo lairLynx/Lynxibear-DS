@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include "audio.h"
 #include "game.h"
 #include "items.h"
 #include "save.h"
@@ -526,7 +527,14 @@ static bool uiHandleButtonPress(int x, int y)
     else
         return false;
 
-    uiPage = selectedPage == uiPage ? UI_ACTIVITY : selectedPage;
+    int previousPage = uiPage;
+    uiPage = selectedPage == previousPage ? UI_ACTIVITY : selectedPage;
+    if (uiPage == UI_ACTIVITY)
+        audioPlaySound(SOUND_MENU_CLOSE);
+    else if (uiPage == UI_INVENTORY)
+        audioPlaySound(SOUND_BAG);
+    else
+        audioPlaySound(SOUND_MENU_OPEN);
     return true;
 }
 
@@ -588,6 +596,7 @@ static bool finishDrag(int x, int y)
         {
             inventoryDirty = true;
             changed = true;
+            audioPlaySound(SOUND_PLACE);
             if (dragSourceStorage && !targetStorage)
                 selectedSlot = (int)targetSlot;
         }
@@ -618,6 +627,7 @@ bool uiHandleTouch(u32 pressedKeys, u32 heldKeys)
         {
             game.tileHighlighter = !game.tileHighlighter;
             settingsDirty = true;
+            audioPlaySound(SOUND_CLICK);
             return true;
         }
         if (touchSlotAt(lastTouchX, lastTouchY,

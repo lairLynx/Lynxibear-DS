@@ -55,6 +55,7 @@ int main(void)
         {
             if (view == VIEW_TOWN)
             {
+                audioPlaySound(SOUND_BACK);
                 view = townReturnView;
                 snprintf(message, sizeof(message), view == VIEW_ROADS ?
                          "Back on the crossroads." : "Back at the farm.");
@@ -63,6 +64,7 @@ int main(void)
             {
                 townReturnView = view;
                 view = VIEW_TOWN;
+                audioPlaySound(SOUND_SHOP_BELL);
                 snprintf(message, sizeof(message), "Lynxibear Valley: choose a place to visit.");
             }
             changed = true;
@@ -107,11 +109,13 @@ int main(void)
             }
             else if (pressed & KEY_L)
             {
+                audioPlaySound(SOUND_CLICK);
                 gameCycleInventory(-1);
                 changed = true;
             }
             else if (pressed & KEY_R)
             {
+                audioPlaySound(SOUND_CLICK);
                 gameCycleInventory(1);
                 changed = true;
             }
@@ -120,12 +124,14 @@ int main(void)
         {
             if (repeated & (KEY_LEFT | KEY_UP))
             {
+                audioPlaySound(SOUND_HOVER);
                 gameMoveTownFocus(-1);
                 changed = true;
                 sceneChanged = true;
             }
             else if (repeated & (KEY_RIGHT | KEY_DOWN))
             {
+                audioPlaySound(SOUND_HOVER);
                 gameMoveTownFocus(1);
                 changed = true;
                 sceneChanged = true;
@@ -139,6 +145,7 @@ int main(void)
             }
             else if (pressed & KEY_B)
             {
+                audioPlaySound(SOUND_BACK);
                 view = townReturnView;
                 snprintf(message, sizeof(message), view == VIEW_ROADS ?
                          "Back on the crossroads." : "Back at the farm.");
@@ -147,11 +154,13 @@ int main(void)
             }
             else if (pressed & KEY_R)
             {
+                audioPlaySound(SOUND_CLICK);
                 gameCycleShopCrop(1);
                 changed = true;
             }
             else if (pressed & KEY_L)
             {
+                audioPlaySound(SOUND_CLICK);
                 gameCycleShopCrop(-1);
                 changed = true;
             }

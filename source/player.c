@@ -1,5 +1,6 @@
 #include "player.h"
 
+#include "audio.h"
 #include "game.h"
 #include "items.h"
 #include "maps.h"
@@ -23,7 +24,16 @@ static int toolAnimationTool;
 static int toolAnimationDirection;
 static int displayedAction = -1;
 
-enum { WALK_FRAME_TICKS = 6, TOOL_ANIMATION_TICKS = 16 };
+// The farmer walks about 1 px per tick. The first step sounds only after a
+// moment of steady walking, so tapping the D-pad stays quiet, and then one
+// sounds every STEP_SOUND_TICKS.
+enum
+{
+    WALK_FRAME_TICKS = 6,
+    TOOL_ANIMATION_TICKS = 16,
+    FIRST_STEP_TICKS = 18,
+    STEP_SOUND_TICKS = 42
+};
 
 static void setHighlightPixel(int x, int y)
 {
@@ -133,6 +143,7 @@ static bool crossScreenEdge(int nextX, int nextY)
     {
         // The road out of the home field leads to the crossroads.
         view = VIEW_ROADS;
+        audioPlaySound(SOUND_GATE);
         playerX = 0;
         playerY = ROADS_ENTRY_Y;
         setStatus("The crossroads. Mines north, beach south.");
@@ -186,6 +197,7 @@ static bool moveOnRoads(int nextX, int nextY)
     if (left < 0)
     {
         view = VIEW_FARM;
+        audioPlaySound(SOUND_GATE);
         game.screen = HOME_SCREEN;
         playerX = WALK_MAX_X;
         playerY = FIELD_TOP + HOME_EXIT_ROW * TILE_SIZE + 6;
@@ -196,6 +208,7 @@ static bool moveOnRoads(int nextX, int nextY)
     {
         townReturnView = VIEW_ROADS;
         view = VIEW_TOWN;
+        audioPlaySound(SOUND_SHOP_BELL);
         playerX = SCREEN_WIDTH - 36;
         playerY = ROADS_ENTRY_Y;
         setStatus("Lynxibear Valley: choose a place to visit.");
@@ -296,6 +309,10 @@ void playerUpdateSprite(void)
 
     walkTicks = movedThisFrame ? walkTicks + 1 : 0;
     movedThisFrame = false;
+    if (walkTicks >= FIRST_STEP_TICKS &&
+        (walkTicks - FIRST_STEP_TICKS) % STEP_SOUND_TICKS == 0 &&
+        toolAnimationTicks == 0)
+        audioPlaySound(view == VIEW_ROADS ? SOUND_STEP_DIRT : SOUND_STEP_GRASS);
     int frame = facingDirection() * 4 + (walkTicks / WALK_FRAME_TICKS) % 4;
     if (frame != displayedFrame)
     {

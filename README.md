@@ -28,6 +28,7 @@ existing title, however it is heavly inspired by Stardew Valley by Concerned Ape
 - Bottom-screen touch UI with info, controls, and settings panels
 - Optional tile highlighter (on by default, toggle in settings)
 - Streamed music: a dedicated menu theme and a looping in-game playlist
+- Cozy sound effects for tools, planting, harvesting, footsteps, the shop, sleeping, and menus
 - SD-card saves with backup and recovery; the game autosaves when you sleep,
   and older saves are upgraded automatically
 
@@ -74,11 +75,11 @@ compile.bat -B       :: force a full rebuild
 compile.bat clean    :: remove generated files
 ```
 
-Music is not stored in the repository. To include it, run
-`python tools\convert_music.py` once before building (needs
-`pip install numpy scipy soundfile`); it downloads the CC0 tracks and writes
-them to `nitrofs/`, which makes the ROM about 15 MB. Without it the game builds
-and runs silently.
+Music and sound effects are not stored in the repository. Before building, run
+`python tools\convert_music.py` and `python tools\convert_sfx.py` once (they
+need `pip install numpy scipy soundfile py7zr`). They download the CC0 music and the
+CC-BY sound effects and write them to `nitrofs/` and `audio/`, which makes the
+ROM about 16 MB. Without them the game builds and runs silently.
 
 Copy `lynxibear.nds` to the SD card of a DSi (or DS with a flashcart) or run
 it in an emulator. Saves are written to `lynxibear.sav`.
@@ -98,4 +99,9 @@ it in an emulator. Saves are written to `lynxibear.sav`.
   does not cover the Sprout Lands art, which stays under its creator's terms.
 - Music (CC0, from OpenGameArt.org): "Apple Cider" and "Hush Hamlet" by Zane Little Music,
   and "Hot Springs Town" by Kistol. Converted for the DS by `tools/convert_music.py`.
+- Sound effects: "Cozy Farm SFX" by Bramble & Byte (https://aquumgifts.itch.io),
+  licensed CC-BY 4.0, from
+  [OpenGameArt.org](https://opengameart.org/content/cozy-farm-sfx-50-farming-game-sound-effects-tools-harvest-shop-ui-jingles).
+  Footsteps are from [Fantozzi's Footsteps](https://opengameart.org/content/fantozzis-footsteps-grasssand-stone)
+  by Fantozzi (CC0). Resampled for the DS by `tools/convert_sfx.py`.
 - Built with [BlocksDS](https://github.com/blocksds/sdk) and libnds.

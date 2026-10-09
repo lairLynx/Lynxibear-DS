@@ -8,6 +8,12 @@
 #include <string.h>
 #include <unistd.h>
 
+// The soundbank header only exists when audio/ holds WAV files at build time.
+#if __has_include("soundbank.h")
+#include "soundbank.h"
+#define HAVE_SOUNDBANK 1
+#endif
+
 enum
 {
     STREAM_RATE = 22050,
@@ -23,7 +29,39 @@ static const char *const gameTracks[] = {
     "nitro:/music/game2.pcm",
 };
 
+#ifdef HAVE_SOUNDBANK
+static const u8 soundIds[SOUND_COUNT] = {
+    [SOUND_HOE] = SFX_HOE_DIG,
+    [SOUND_AXE] = SFX_AXE_CHOP,
+    [SOUND_TREE_FALL] = SFX_TREE_FALL,
+    [SOUND_WATER] = SFX_WATERING,
+    [SOUND_SEED] = SFX_SEED_PLANT,
+    [SOUND_HARVEST] = SFX_HARVEST_POP,
+    [SOUND_STEP_GRASS] = SFX_STEP_GRASS_L,
+    [SOUND_STEP_DIRT] = SFX_STEP_DIRT_L,
+    [SOUND_SELL] = SFX_SELL_COINS,
+    [SOUND_BUY] = SFX_BUY,
+    [SOUND_NO_MONEY] = SFX_NOT_ENOUGH_MONEY,
+    [SOUND_LEVEL_UP] = SFX_JINGLE_LEVEL_UP,
+    [SOUND_SLEEP] = SFX_SLEEP,
+    [SOUND_ERROR] = SFX_UI_ERROR,
+    [SOUND_CLICK] = SFX_UI_CLICK,
+    [SOUND_HOVER] = SFX_UI_HOVER,
+    [SOUND_CONFIRM] = SFX_UI_CONFIRM,
+    [SOUND_BACK] = SFX_UI_BACK,
+    [SOUND_MENU_OPEN] = SFX_MENU_OPEN,
+    [SOUND_MENU_CLOSE] = SFX_MENU_CLOSE,
+    [SOUND_BAG] = SFX_INVENTORY_OPEN,
+    [SOUND_PLACE] = SFX_PLACE_ITEM,
+    [SOUND_GATE] = SFX_GATE,
+    [SOUND_SHOP_BELL] = SFX_SHOP_BELL,
+};
+#endif
+
 static bool streamOpen;
+static bool soundsReady;
+static bool altHoe;
+static bool rightFoot;
 static int currentTheme = -1;
 static const char *const *playlist;
 static unsigned playlistCount;
@@ -111,7 +149,22 @@ void audioInitialize(void)
     if (hadDirectory)
         chdir(previousDirectory);
 
-    if (!nitroReady || !mmInitNoSoundbank())
+    if (!nitroReady)
+        return;
+
+#ifdef HAVE_SOUNDBANK
+    if (mmInitDefault("nitro:/soundbank.bin"))
+    {
+        for (int i = 0; i < SOUND_COUNT; i++)
+            mmLoadEffect(soundIds[i]);
+        mmLoadEffect(SFX_HOE_DIG_2);
+        mmLoadEffect(SFX_STEP_GRASS_R);
+        mmLoadEffect(SFX_STEP_DIRT_R);
+        soundsReady = true;
+    }
+    else
+#endif
+    if (!mmInitNoSoundbank())
         return;
 
     mm_stream stream = {
@@ -138,6 +191,41 @@ void audioPlay(int theme)
 
     pendingTheme = theme;
     fadingOut = true;
+}
+
+void audioPlaySound(SoundId sound)
+{
+#ifdef HAVE_SOUNDBANK
+    if (!soundsReady || sound < 0 || sound >= SOUND_COUNT)
+        return;
+
+    mm_word id = soundIds[sound];
+    if (sound == SOUND_HOE)
+    {
+        altHoe = !altHoe;
+        if (altHoe)
+            id = SFX_HOE_DIG_2;
+    }
+
+    if (sound == SOUND_STEP_GRASS || sound == SOUND_STEP_DIRT)
+    {
+        // Left and right feet alternate; the right-foot sounds follow the left.
+        rightFoot = !rightFoot;
+        if (rightFoot)
+            id = sound == SOUND_STEP_GRASS ? SFX_STEP_GRASS_R : SFX_STEP_DIRT_R;
+    }
+
+    mm_sound_effect effect = {
+        .id = id,
+        .rate = 1024,
+        .handle = 0,
+        .volume = 190,
+        .panning = 128,
+    };
+    mmEffectEx(&effect);
+#else
+    (void)sound;
+#endif
 }
 
 void audioUpdate(void)

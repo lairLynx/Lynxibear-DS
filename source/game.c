@@ -1,5 +1,6 @@
 #include "game.h"
 
+#include "audio.h"
 #include "items.h"
 
 #include <stdio.h>
@@ -16,6 +17,16 @@ int townFocus = TOWN_STORE;
 int selectedSlot;
 int selectedShopCrop;
 char message[48] = "Welcome to Lynxibear Valley!";
+
+// Actions that succeed play their own sound; anything else that was tried falls
+// back to a soft error blip so failures are audible too.
+static bool soundGiven;
+
+static void cue(SoundId sound)
+{
+    audioPlaySound(sound);
+    soundGiven = true;
+}
 
 static const unsigned startingTreeTiles[] = {0, 7, 40};
 
@@ -219,12 +230,13 @@ void gameHoeTile(void)
     else
     {
         tile->tilled = true;
+        cue(SOUND_HOE);
         spendEnergy(4);
         snprintf(message, sizeof(message), "Soil turned. Choose seeds with L/R.");
     }
 }
 
-void gameInteractFarm(void)
+static void interactFarm(void)
 {
     FarmTile *tile = gameFocusedTile();
     if (focus >= 0 && (CURRENT_TREES & ((u64)1 << focus)) != 0)
@@ -248,6 +260,7 @@ void gameInteractFarm(void)
             return;
         }
 
+        cue(SOUND_HARVEST);
         game.harvests++;
         tile->crop = CROP_EMPTY;
         tile->growth = 0;
@@ -279,10 +292,19 @@ void gameInteractFarm(void)
         tile->crop = cropIndex + 1;
         tile->growth = 0;
         tile->watered = false;
+        cue(SOUND_SEED);
         removeInventoryItem((unsigned)selectedSlot, 1);
         spendEnergy(3);
         snprintf(message, sizeof(message), "Planted %s. Water it today!", crop->name);
     }
+}
+
+void gameInteractFarm(void)
+{
+    soundGiven = false;
+    interactFarm();
+    if (!soundGiven)
+        audioPlaySound(SOUND_ERROR);
 }
 
 void gameWaterTile(void)
@@ -305,6 +327,7 @@ void gameWaterTile(void)
     else
     {
         tile->watered = true;
+        cue(SOUND_WATER);
         spendEnergy(2);
         snprintf(message, sizeof(message), "Watered! It grows overnight.");
     }
@@ -336,6 +359,9 @@ void gameSleepUntilMorning(void)
         }
     }
 
+    if (earned > 0)
+        audioPlaySound(SOUND_SELL);
+    audioPlaySound(SOUND_SLEEP);
     if (earned > MAX_GOLD - game.gold)
         game.gold = MAX_GOLD;
     else
@@ -424,12 +450,15 @@ static void gameChopTree(void)
     }
 
     CURRENT_TREES &= ~((u64)1 << focus);
+    cue(SOUND_AXE);
+    audioPlaySound(SOUND_TREE_FALL);
     spendEnergy(6);
     snprintf(message, sizeof(message), "Chopped the tree. Gathered 3 wood.");
 }
 
 void gameUseSelectedTool(void)
 {
+    soundGiven = false;
     if (selectedSlot < 0 || selectedSlot >= INVENTORY_SLOTS)
     {
         snprintf(message, sizeof(message), "Select a tool from the item bar.");
@@ -451,6 +480,9 @@ void gameUseSelectedTool(void)
         snprintf(message, sizeof(message), "Select the axe, hoe or watering can.");
         break;
     }
+
+    if (!soundGiven)
+        audioPlaySound(SOUND_ERROR);
 }
 
 void gameCycleInventory(int direction)
@@ -494,9 +526,11 @@ void gameMoveTownFocus(int direction)
 
 void gameInteractTown(void)
 {
+    soundGiven = false;
     if (townFocus == TOWN_FARM_GATE)
     {
         view = townReturnView;
+        cue(SOUND_BACK);
         snprintf(message, sizeof(message), view == VIEW_ROADS ?
                  "Back on the crossroads." : "Back to the farm. What will you grow?");
         return;
@@ -508,12 +542,16 @@ void gameInteractTown(void)
         const CropInfo *crop = &crops[selectedShopCrop];
         unsigned seedItem = itemSeedId((unsigned)selectedShopCrop);
         if (game.gold < crop->seedPackPrice)
+        {
+            cue(SOUND_NO_MONEY);
             snprintf(message, sizeof(message), "Not enough gold for this seed pack.");
+        }
         else if (!addInventoryItem(seedItem, 3))
             snprintf(message, sizeof(message), "Inventory full; make room for seeds.");
         else
         {
             game.gold -= crop->seedPackPrice;
+            cue(SOUND_BUY);
             snprintf(message, sizeof(message), "Bought 3 %s seeds.", crop->name);
         }
         return;
@@ -523,13 +561,20 @@ void gameInteractTown(void)
     if (game.repairs >= 2)
         snprintf(message, sizeof(message), "Valley restoration complete!");
     else if (game.gold < cost)
+    {
+        cue(SOUND_NO_MONEY);
         snprintf(message, sizeof(message), "Save more gold from your harvests.");
+    }
     else
     {
         game.gold -= cost;
+        cue(SOUND_LEVEL_UP);
         game.repairs++;
         snprintf(message, sizeof(message),
                  game.repairs == 1 ? "Board restored! Maximum energy increased."
                                    : "Valley renewed! Shipments now earn 10%% more.");
     }
+
+    if (!soundGiven)
+        audioPlaySound(SOUND_ERROR);
 }

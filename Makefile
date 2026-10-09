@@ -7,7 +7,9 @@ SOURCEDIRS := source
 
 # Streamed music lives in NitroFS; tools/convert_music.py fills nitrofs/music.
 NITROFSDIR := nitrofs
-$(shell mkdir -p $(NITROFSDIR)/music)
+$(shell mkdir -p $(NITROFSDIR)/music audio)
+# Sound effects are WAVs in audio/; tools/convert_sfx.py fills it and mmutil builds the soundbank.
+AUDIODIRS := audio
 LIBS := -lmm9 -lnds9
 LIBDIRS := $(BLOCKSDS)/libs/maxmod
 
