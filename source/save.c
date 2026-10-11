@@ -773,16 +773,38 @@ bool saveInitialize(void)
     return initialized;
 }
 
+static bool fileExists(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+        return false;
+    fclose(file);
+    return true;
+}
+
+// Tries the save, then its backup, then a finished-but-not-yet-renamed temp
+// file (left behind if power was lost between the two renames in saveGame).
+// When nothing is readable, the status message says why.
+static bool readAnySave(SaveData *data, bool *migrated)
+{
+    if (readSave(SAVE_PATH, data, migrated) ||
+        readSave(SAVE_BACKUP_PATH, data, migrated) ||
+        readSave(SAVE_TEMP_PATH, data, migrated))
+        return true;
+
+    bool found = fileExists(SAVE_PATH) || fileExists(SAVE_BACKUP_PATH) ||
+                 fileExists(SAVE_TEMP_PATH);
+    snprintf(storageMessage, sizeof(storageMessage),
+             found ? "Save file found but unreadable." : "No save file on the SD card.");
+    return false;
+}
+
 bool saveLoadGame(void)
 {
     SaveData saved;
     bool migrated = false;
-    if (!readSave(SAVE_PATH, &saved, &migrated) &&
-        !readSave(SAVE_BACKUP_PATH, &saved, &migrated))
-    {
-        snprintf(storageMessage, sizeof(storageMessage), "New farm; no save found.");
+    if (!readAnySave(&saved, &migrated))
         return false;
-    }
 
     game = saved;
     selectedSlot = 0;
@@ -800,20 +822,28 @@ bool saveLoadGame(void)
 bool savePeek(SaveData *out)
 {
     bool migrated;
-    return readSave(SAVE_PATH, out, &migrated) ||
-           readSave(SAVE_BACKUP_PATH, out, &migrated);
+    return readAnySave(out, &migrated);
 }
 
 bool saveGame(void)
 {
+    static SaveData verify;
     game.version = SAVE_VERSION;
 
+    // Write the new save to a temp file and read it back before it is allowed
+    // to replace anything, so a bad write can never cost the existing save.
     if (writeSave(SAVE_TEMP_PATH, &game))
     {
-        FILE *existing = fopen(SAVE_PATH, "rb");
-        bool hadPreviousFile = existing != NULL;
-        if (existing != NULL)
-            fclose(existing);
+        if (!readCurrentSave(SAVE_TEMP_PATH, &verify) ||
+            memcmp(&verify, &game, sizeof(game)) != 0)
+        {
+            remove(SAVE_TEMP_PATH);
+            snprintf(storageMessage, sizeof(storageMessage),
+                     "SD save did not verify; old save kept.");
+            return false;
+        }
+
+        bool hadPreviousFile = fileExists(SAVE_PATH);
 
         remove(SAVE_BACKUP_PATH);
         if (hadPreviousFile && rename(SAVE_PATH, SAVE_BACKUP_PATH) != 0)
@@ -832,9 +862,13 @@ bool saveGame(void)
 
         if (hadPreviousFile)
             rename(SAVE_BACKUP_PATH, SAVE_PATH);
+        snprintf(storageMessage, sizeof(storageMessage),
+                 "SD save could not be renamed.");
+        remove(SAVE_TEMP_PATH);
+        return false;
     }
 
     remove(SAVE_TEMP_PATH);
-    snprintf(storageMessage, sizeof(storageMessage), "SD save failed; keep this system on.");
+    snprintf(storageMessage, sizeof(storageMessage), "SD write failed; keep this system on.");
     return false;
 }
