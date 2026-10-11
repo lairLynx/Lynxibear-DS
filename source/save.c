@@ -18,6 +18,14 @@
 
 char storageMessage[44] = "SD save not loaded.";
 
+// New games never stamped the magic number, so every save written from a fresh
+// game has magic 0 (the checksum still guards those files). Accept both; saveGame
+// stamps the real magic from now on.
+static bool validMagic(u32 magic)
+{
+    return magic == SAVE_MAGIC || magic == 0;
+}
+
 typedef struct
 {
     u32 magic;
@@ -179,7 +187,7 @@ static size_t failBytes;
 // Checks everything except the bin; `size` is how many bytes the checksum covers.
 static bool validSaveBody(const SaveData *data, u32 version, size_t size)
 {
-    if (data->magic != SAVE_MAGIC)
+    if (!validMagic(data->magic))
         FAIL("magic");
     if (data->version != version)
         FAIL("version");
@@ -246,7 +254,7 @@ static bool validWorldV6(const SaveDataV6 *data)
 
 static bool validV6Save(const SaveDataV6 *data)
 {
-    if (data->magic != SAVE_MAGIC || data->version != 6 ||
+    if (!validMagic(data->magic) || data->version != 6 ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
@@ -277,7 +285,7 @@ static bool validV6Save(const SaveDataV6 *data)
 
 static bool validV5Save(const SaveDataV5 *data)
 {
-    if (data->magic != SAVE_MAGIC || data->version != 5 ||
+    if (!validMagic(data->magic) || data->version != 5 ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 || data->tileHighlighter > 1 ||
@@ -308,7 +316,7 @@ static bool validV5Save(const SaveDataV5 *data)
 
 static bool validV4Save(const SaveDataV4 *data)
 {
-    if (data->magic != SAVE_MAGIC || data->version != 4 ||
+    if (!validMagic(data->magic) || data->version != 4 ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
@@ -339,7 +347,7 @@ static bool validV4Save(const SaveDataV4 *data)
 
 static bool validV2Save(const SaveDataV2 *data)
 {
-    if (data->magic != SAVE_MAGIC || data->version != 2 ||
+    if (!validMagic(data->magic) || data->version != 2 ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
@@ -363,7 +371,7 @@ static bool validV2Save(const SaveDataV2 *data)
 
 static bool validV3Save(const SaveDataV3 *data)
 {
-    if (data->magic != SAVE_MAGIC || data->version != 3 ||
+    if (!validMagic(data->magic) || data->version != 3 ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
@@ -386,7 +394,7 @@ static bool validV3Save(const SaveDataV3 *data)
 
 static bool validV1Save(const SaveDataV1 *data)
 {
-    if (data->magic != SAVE_MAGIC || data->version != 1 ||
+    if (!validMagic(data->magic) || data->version != 1 ||
         data->day == 0 || data->day > SEASON_LENGTH ||
         data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
         data->repairs > 2 || data->season >= 4 ||
@@ -887,6 +895,7 @@ bool savePeek(SaveData *out)
 bool saveGame(void)
 {
     static SaveData verify;
+    game.magic = SAVE_MAGIC;
     game.version = SAVE_VERSION;
 
     // Write the new save to a temp file and read it back before it is allowed

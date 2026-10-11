@@ -157,6 +157,7 @@ void gameGenerateWildTrees(SaveData *data)
 void gameNew(void)
 {
     memset(&game, 0, sizeof(game));
+    game.magic = SAVE_MAGIC;
     game.day = 1;
     game.gold = 100;
     game.energy = BASE_ENERGY;
