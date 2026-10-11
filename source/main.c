@@ -34,6 +34,19 @@ static void fadeScreens(bool toBlack)
     }
 }
 
+// A brief fade (about 0.13 s each way) used when walking between places.
+static void quickFade(bool toBlack)
+{
+    const int steps = 8;
+    for (int step = 1; step <= steps; step++)
+    {
+        int level = step * 16 / steps;
+        setBrightness(3, toBlack ? -level : level - 16);
+        waitFrames(1);
+    }
+    setBrightness(3, toBlack ? -16 : 0);
+}
+
 // Going to bed: fade to a night card, sleep (the sleep sound plays), save, then
 // wake the farmer on the next day in front of the house.
 static void windDownDay(void)
@@ -213,13 +226,30 @@ int main(void)
 
             if (view != shownView || game.screen != shownScreen)
                 sceneChanged = true;
-            if (sceneChanged)
+            // Going somewhere else (another field, the crossroads, the town, a
+            // shop) dips both screens to black around the swap. The old scene
+            // and sprites stay up until the screens are dark; then the top
+            // scene, the bottom panel and the sprites are all redrawn while
+            // fully black, and the fade in only reveals finished frames.
+            bool travelled = view != shownView || game.screen != shownScreen;
+            shownScreen = game.screen;
+            shownView = view;
+            if (travelled)
             {
-                shownScreen = game.screen;
-                shownView = view;
+                quickFade(true);
+                waitFrames(1);
                 renderScene();
+                uiRenderStatus();
+                playerUpdateSprite();
+                waitFrames(2);
+                quickFade(false);
             }
-            uiRenderStatus();
+            else
+            {
+                if (sceneChanged)
+                    renderScene();
+                uiRenderStatus();
+            }
         }
         swiWaitForVBlank();
         audioUpdate();
