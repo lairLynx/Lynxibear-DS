@@ -166,18 +166,41 @@ static bool validWorld(const SaveData *data)
 // Version 7 files are the current layout without the trailing shipping bin.
 #define SAVE_V7_SIZE offsetof(SaveData, bin)
 
+_Static_assert(offsetof(SaveData, bin) == 1912, "SaveData v7 prefix size changed");
+_Static_assert(sizeof(SaveData) == 1928, "SaveData size changed");
+
+// Why the last validation or read failed, for the status line (a save that
+// "is found but unreadable" is otherwise impossible to diagnose on hardware).
+static const char *failReason = "";
+static size_t failBytes;
+
+#define FAIL(reason) do { failReason = (reason); return false; } while (0)
+
 // Checks everything except the bin; `size` is how many bytes the checksum covers.
 static bool validSaveBody(const SaveData *data, u32 version, size_t size)
 {
-    if (data->magic != SAVE_MAGIC || data->version != version ||
-        data->day == 0 || data->day > SEASON_LENGTH ||
-        data->gold > MAX_GOLD || data->energy > BASE_ENERGY + 40 ||
-        data->repairs > 2 || data->season >= 4 ||
-        data->tileHighlighter > 1 || data->screen >= WORLD_SCREENS ||
-        !validWorld(data) ||
-        data->checksum != checksumBytes(data, size,
-                                        offsetof(SaveData, checksum)))
-        return false;
+    if (data->magic != SAVE_MAGIC)
+        FAIL("magic");
+    if (data->version != version)
+        FAIL("version");
+    if (data->day == 0 || data->day > SEASON_LENGTH)
+        FAIL("day");
+    if (data->gold > MAX_GOLD)
+        FAIL("gold");
+    if (data->energy > BASE_ENERGY + 40)
+        FAIL("energy");
+    if (data->repairs > 2)
+        FAIL("repairs");
+    if (data->season >= 4)
+        FAIL("season");
+    if (data->tileHighlighter > 1)
+        FAIL("highlighter");
+    if (data->screen >= WORLD_SCREENS)
+        FAIL("screen");
+    if (!validWorld(data))
+        FAIL("farm or trees");
+    if (data->checksum != checksumBytes(data, size, offsetof(SaveData, checksum)))
+        FAIL("checksum");
 
     const InventorySlot *containers[] = {data->inventory, data->storage};
     const unsigned slotCounts[] = {INVENTORY_SLOTS, STORAGE_SLOTS};
@@ -191,13 +214,12 @@ static bool validSaveBody(const SaveData *data, u32 version, size_t size)
                  (slot->item > ITEM_LAST || slot->count == 0 ||
                   slot->count > MAX_STACK)) ||
                 (itemIsTool(slot->item) && slot->count != 1))
-                return false;
+                FAIL("inventory");
         }
     }
 
     return true;
 }
-
 static bool validCurrentSave(const SaveData *data)
 {
     if (!validSaveBody(data, SAVE_VERSION, sizeof(*data)))
@@ -206,7 +228,7 @@ static bool validCurrentSave(const SaveData *data)
     for (unsigned crop = 0; crop < CROP_COUNT; crop++)
     {
         if (data->bin[crop] > MAX_STACK)
-            return false;
+            FAIL("bin");
     }
     return true;
 }
@@ -384,26 +406,40 @@ static bool validV1Save(const SaveDataV1 *data)
 
 static bool readCurrentSave(const char *path, SaveData *data)
 {
+    failBytes = 0;
+    failReason = "open";
     FILE *file = fopen(path, "rb");
     if (file == NULL)
         return false;
 
-    bool readOk = fread(data, sizeof(*data), 1, file) == 1;
+    failBytes = fread(data, 1, sizeof(*data), file);
     fclose(file);
-    return readOk && validCurrentSave(data);
+    if (failBytes != sizeof(*data))
+    {
+        failReason = "short read";
+        return false;
+    }
+    return validCurrentSave(data);
 }
 
 // Reads a version 7 file into the current layout with an empty shipping bin.
 static bool readV7Save(const char *path, SaveData *data)
 {
+    failBytes = 0;
+    failReason = "open";
     FILE *file = fopen(path, "rb");
     if (file == NULL)
         return false;
 
     memset(data, 0, sizeof(*data));
-    bool readOk = fread(data, SAVE_V7_SIZE, 1, file) == 1;
+    failBytes = fread(data, 1, SAVE_V7_SIZE, file);
     fclose(file);
-    if (!readOk || !validSaveBody(data, 7, SAVE_V7_SIZE))
+    if (failBytes != SAVE_V7_SIZE)
+    {
+        failReason = "short read";
+        return false;
+    }
+    if (!validSaveBody(data, 7, SAVE_V7_SIZE))
         return false;
 
     data->version = SAVE_VERSION;
@@ -679,12 +715,29 @@ static void migrateV6(const SaveDataV6 *old, SaveData *data)
     clearHomeExit(data);
 }
 
+// The first reason a file that exists could not be read, e.g. "sav 1928B:
+// checksum", kept for the status line.
+static char failureNote[44];
+
+static void noteFailure(const char *path)
+{
+    if (failureNote[0] != '\0' || failBytes == 0)
+        return;
+    const char *extension = strrchr(path, '.');
+    snprintf(failureNote, sizeof(failureNote), "%s %uB: %s",
+             extension != NULL ? extension + 1 : "?", (unsigned)failBytes, failReason);
+}
+
 static bool readSave(const char *path, SaveData *data, bool *migrated)
 {
     if (migrated != NULL)
         *migrated = false;
     if (readCurrentSave(path, data))
         return true;
+    // A version 7 file is shorter than the current layout; that is not the
+    // interesting failure, the version 7 attempt below is.
+    if (strcmp(failReason, "short read") != 0)
+        noteFailure(path);
 
     if (readV7Save(path, data))
     {
@@ -692,6 +745,8 @@ static bool readSave(const char *path, SaveData *data, bool *migrated)
             *migrated = true;
         return true;
     }
+
+    noteFailure(path);
 
     SaveDataV6 previous;
     if (readV6Save(path, &previous))
@@ -787,6 +842,7 @@ static bool fileExists(const char *path)
 // When nothing is readable, the status message says why.
 static bool readAnySave(SaveData *data, bool *migrated)
 {
+    failureNote[0] = '\0';
     if (readSave(SAVE_PATH, data, migrated) ||
         readSave(SAVE_BACKUP_PATH, data, migrated) ||
         readSave(SAVE_TEMP_PATH, data, migrated))
@@ -794,8 +850,11 @@ static bool readAnySave(SaveData *data, bool *migrated)
 
     bool found = fileExists(SAVE_PATH) || fileExists(SAVE_BACKUP_PATH) ||
                  fileExists(SAVE_TEMP_PATH);
-    snprintf(storageMessage, sizeof(storageMessage),
-             found ? "Save file found but unreadable." : "No save file on the SD card.");
+    if (found && failureNote[0] != '\0')
+        snprintf(storageMessage, sizeof(storageMessage), "Unreadable %s", failureNote);
+    else
+        snprintf(storageMessage, sizeof(storageMessage),
+                 found ? "Save file found but unreadable." : "No save file on the SD card.");
     return false;
 }
 
@@ -834,12 +893,21 @@ bool saveGame(void)
     // to replace anything, so a bad write can never cost the existing save.
     if (writeSave(SAVE_TEMP_PATH, &game))
     {
-        if (!readCurrentSave(SAVE_TEMP_PATH, &verify) ||
-            memcmp(&verify, &game, sizeof(game)) != 0)
+        if (!readCurrentSave(SAVE_TEMP_PATH, &verify))
         {
             remove(SAVE_TEMP_PATH);
+            snprintf(storageMessage, sizeof(storageMessage), "Verify %uB: %s",
+                     (unsigned)failBytes, failReason);
+            return false;
+        }
+        if (memcmp(&verify, &game, sizeof(game)) != 0)
+        {
+            unsigned at = 0;
+            while (((const u8 *)&verify)[at] == ((const u8 *)&game)[at])
+                at++;
+            remove(SAVE_TEMP_PATH);
             snprintf(storageMessage, sizeof(storageMessage),
-                     "SD save did not verify; old save kept.");
+                     "Verify: byte %u differs", at);
             return false;
         }
 
