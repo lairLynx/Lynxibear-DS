@@ -18,6 +18,8 @@ int mapsTownBuildingDoorX(int building);
 int mapsTownDoorFrontY(void);
 bool mapsTownTreeSolid(int left, int top, int right, int bottom);
 void mapsDrawTitle(void);
+// Black screen with the studio logo; see uiRenderSplash for the lettering.
+void mapsDrawSplash(void);
 u16 *mapsBitmap(void);
 // Forces the next farm draw to repaint the whole bitmap.
 void mapsInvalidate(void);

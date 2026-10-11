@@ -2,6 +2,7 @@
 
 #include "game.h"
 #include "items.h"
+#include "splash_logo.h"
 #include "sprout_assets.h"
 
 #include <string.h>
@@ -674,6 +675,29 @@ static void drawScaledSprite(const u8 *sprite, const u16 *palette,
             if (index != 0)
                 fillRect(x + column * scale, y + row * scale, scale, scale,
                          palette[index]);
+        }
+    }
+}
+
+// Splash screen: the lairLynx Studios logo in cream on black. The caller adds
+// the lettering below it.
+void mapsDrawSplash(void)
+{
+    resetClip();
+    farmDrawn = false;
+    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR(0, 0, 0));
+
+    int left = (SCREEN_WIDTH - SPLASH_LOGO_WIDTH) / 2;
+    for (int row = 0; row < SPLASH_LOGO_HEIGHT; row++)
+    {
+        for (int column = 0; column < SPLASH_LOGO_WIDTH; column++)
+        {
+            unsigned coverage = splashLogo[row * SPLASH_LOGO_WIDTH + column];
+            if (coverage < 8)
+                continue;
+            putPixel(left + column, 12 + row,
+                     COLOR(31 * coverage / 255, 29 * coverage / 255,
+                           23 * coverage / 255));
         }
     }
 }

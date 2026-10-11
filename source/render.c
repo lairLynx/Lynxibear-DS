@@ -1,5 +1,6 @@
 #include "render.h"
 
+#include "audio.h"
 #include "game.h"
 #include "maps.h"
 
@@ -23,4 +24,14 @@ void renderInitialize(void)
 void renderScene(void)
 {
     mapsDraw(view);
+}
+
+void renderFade(bool toBlack)
+{
+    for (int level = 1; level <= 16; level++)
+    {
+        setBrightness(3, toBlack ? -level : level - 16);
+        swiWaitForVBlank();
+        audioUpdate();
+    }
 }

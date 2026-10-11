@@ -3,6 +3,7 @@
 #include "audio.h"
 #include "game.h"
 #include "maps.h"
+#include "render.h"
 #include "save.h"
 #include "ui.h"
 
@@ -12,13 +13,14 @@ enum
     MENU_NEW_GAME
 };
 
-bool menuRun(bool saveAvailable)
+static bool menuLoop(bool saveAvailable)
 {
     SaveData saved;
     bool hasSave = saveAvailable && savePeek(&saved);
     int selected = hasSave ? MENU_CONTINUE : MENU_NEW_GAME;
     bool confirming = false;
     bool redraw = true;
+    bool fadedIn = false;
 
     mapsDrawTitle();
     uiDrawTitleText(mapsBitmap());
@@ -30,6 +32,14 @@ bool menuRun(bool saveAvailable)
             uiRenderMenu(selected, hasSave, confirming,
                          hasSave ? &saved : NULL, storageMessage);
             redraw = false;
+        }
+
+        // Everything above was drawn while the screens were still black.
+        if (!fadedIn)
+        {
+            swiWaitForVBlank();
+            renderFade(false);
+            fadedIn = true;
         }
 
         swiWaitForVBlank();
@@ -95,4 +105,10 @@ bool menuRun(bool saveAvailable)
             return false;
         redraw = true;
     }
+}
+bool menuRun(bool saveAvailable)
+{
+    bool loadSave = menuLoop(saveAvailable);
+    renderFade(true);
+    return loadSave;
 }

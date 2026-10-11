@@ -73,6 +73,24 @@ static void windDownDay(void)
     fadeScreens(false);
 }
 
+// Startup splash: the studio logo and credit on top, the SDK credit below.
+// Fades in from black, holds (any key or a touch skips ahead), fades out.
+static void showSplash(void)
+{
+    mapsDrawSplash();
+    uiRenderSplash(mapsBitmap());
+    waitFrames(2);
+    renderFade(false);
+    for (int frame = 0; frame < 150; frame++)
+    {
+        waitFrames(1);
+        scanKeys();
+        if (keysDown() & (KEY_A | KEY_B | KEY_START | KEY_TOUCH))
+            break;
+    }
+    renderFade(true);
+}
+
 // Leaves a shop menu and stands the farmer in front of its door in town.
 static void leaveShop(void)
 {
@@ -86,11 +104,13 @@ int main(void)
 {
     int shownScreen = 0;
     int shownView = VIEW_FARM;
+    setBrightness(3, -16);  // stay black until the first scene is drawn
     renderInitialize();
     gameNew();
     bool saveReady = saveInitialize();
     uiInitialize();
     audioInitialize();
+    showSplash();
 
     if (menuRun(saveReady))
     {
@@ -109,6 +129,9 @@ int main(void)
     audioPlay(MUSIC_GAME);
     renderScene();
     uiRenderStatus();
+    playerUpdateSprite();
+    waitFrames(2);
+    renderFade(false);
 
     while (1)
     {

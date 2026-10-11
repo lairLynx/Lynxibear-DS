@@ -19,5 +19,7 @@ int uiMenuButtonAt(int x, int y);
 // Night card shown while the day winds down: "Sweet dreams" on the bottom
 // screen and "Winding down the day..." on the given top-screen bitmap.
 void uiRenderNightCard(u16 *topBitmap);
+// Splash screen lettering on both screens (after mapsDrawSplash).
+void uiRenderSplash(u16 *topBitmap);
 
 #endif

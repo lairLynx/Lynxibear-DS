@@ -763,3 +763,19 @@ void uiRenderNightCard(u16 *topBitmap)
     drawCenteredText(topBitmap, 72, "WINDING DOWN", dim, 2);
     drawCenteredText(topBitmap, 94, "THE DAY...", dim, 2);
 }
+
+// Splash lettering: the studio credit under the logo on the top screen and the
+// SDK credit on an otherwise black bottom screen.
+void uiRenderSplash(u16 *topBitmap)
+{
+    static const u16 cream = COLOR(31, 29, 23);
+    static const u16 dim = COLOR(20, 19, 15);
+    if (uiBitmap == NULL)
+        return;
+
+    drawCenteredText(topBitmap, 128, "MADE BY", dim, 1);
+    drawCenteredText(topBitmap, 142, "LAIRLYNX STUDIOS", cream, 2);
+
+    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR(0, 0, 0));
+    drawCenteredText(uiBitmap, 88, "MADE USING BLOCKSDS", cream, 2);
+}
